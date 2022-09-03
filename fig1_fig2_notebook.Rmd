@@ -1,0 +1,1572 @@
+---
+title: "E lenta metabolism full analysis - Figures 1 and 2 and associated"
+author: "Cecilia Noecker"
+date: '`r format(Sys.time(), "%Y-%m-%d %H:%M")`'
+output:
+  html_document:
+    code_folding: show
+    theme: spacelab
+    number_sections: true
+    highlight: monochrome
+    fig_width: 11
+    fig_height: 8.5
+    toc: true
+    toc_float: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F)
+```
+
+# Figure 1
+
+```{r fig1}
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(readxl)
+library(tidyverse)
+library(webchem)
+library(vegan)
+library(fastcluster)
+library(RColorBrewer)
+library(ggpubr)
+library(ComplexHeatmap)
+library(ggrepel)
+library(patchwork)
+library(KEGGREST)
+
+theme_set(theme_classic2())
+datadir <- ""
+outdir <- "figure1/"
+dir.create(outdir)
+
+sessionInfo()
+
+####### Read in processed datasets
+processed_data <- fread("processedDatasets/timecourse_all_data.csv")
+summary_data <- fread("processedDatasets/timecourse_mean_summaries.csv")
+#growth_file<-paste0(datadir, "TimeCourse_take2_2020-8-17/ODdata.xlsx")
+
+#### Add in OD/growth data
+growth_file <- "../TimeCourse_take2_2020-8-17/ODdata.xlsx"
+growth_data <- read_xlsx(growth_file, sheet = 1)
+time_pts <- read_xlsx(growth_file, sheet = 2)
+time_pts <- data.table(time_pts %>% mutate(TimePoint = as.numeric(gsub("TP", "", TimePoint))))
+growth_data <- data.table(growth_data) %>% melt(id.var = c("Strain", "AcConc", "Replicate"))
+growth_data[,Time:=as.numeric(gsub(".*_", "", variable))]
+growth2 <- growth_data
+setnames(growth2, "value", "OD600")
+growth2[Time==41.5, Time:=42]
+growth2[Time==26.5, Time:=26]
+growth2[Time==30.5, Time:=30]
+mean_growth2 <- growth2[, .(meanOD =mean(OD600), sdOD = sd(OD600)), by=list(Strain, AcConc, Time)]
+
+
+############# Growth data plots
+
+growth_data_sub <- growth2[Strain == "2243" & AcConc==1, list(mean(OD600), sd(OD600)), by = Time]
+growth_data_sub <- rbind(growth_data_sub, data.table(Time = 0, V1 = 0.01), fill = T)
+
+growth2_sub <- growth2[Strain == "2243" & AcConc==1]
+growth2_sub <- rbind(growth2_sub, data.table(Time = rep(0, 3), OD600 = rep(0.01, 3), Replicate = 1:3), fill = T)
+
+growth_plot_heatmap <- ggplot(growth2_sub[,mean(OD600), by=Time], aes(x = factor(Time), y = 1, fill = V1)) + geom_tile(color = "black") + xlab("Time (hr)") + 
+  theme_minimal() + scale_fill_gradient(low = "white", high = "gray20", name = "E. lenta DSM 2243 abundance\n(mean normalized OD600)") + theme(axis.text.y = element_blank(), 
+                                                                                                                                               axis.title.y = element_blank())
+
+ggsave(growth_plot_heatmap, file = paste0(outdir, "growth_plot_timecourse_heatmap.pdf"), width = 5, height = 1.2)
+
+growth_plot_heatmap
+
+summary_data[TimePoint==6 & AcConc==1 & Strain == "2243" , table(CF_superclass)]
+summary_data[TimePoint==6 & AcConc==1 & Strain == "2243" , table(MSI)]
+
+#### Add Other bucket to superclass annotation
+class_counts <- summary_data[TimePoint==6 & AcConc==1 & Strain == "2243", length(unique(IDUniq)), by = CF_superclass][order(V1, decreasing = T)]
+summary_data[,CF_superclass2:=ifelse(CF_superclass %in% class_counts[V1 < 5, CF_superclass], "Other", CF_superclass)]
+
+#### Volcano plot
+volcano_plot_gnps <- ggplot(summary_data[TimePoint==6 & AcConc==1 & Strain == "2243" & CF_superclass == "no matches"], aes(x = log2FC_adj, y = -1*log10(p.value))) +
+  geom_vline(xintercept = 1, linetype = 2) + geom_vline(xintercept = -1, linetype = 2) +
+  geom_hline(yintercept = 0.6, linetype = 2) +
+  geom_point(shape = 21, fill = "gray30", alpha = 0.8, size= 1.2) + geom_point(data = summary_data[TimePoint==6 & AcConc==1 & Strain == "2243" & CF_superclass != "no matches"], aes(fill = CF_superclass2), shape = 21, size = 1.8) +
+  scale_fill_manual(values = c(brewer.pal(12, "Set3")[c(1:2,4:8, 10:12)]), name = "Superclass") + 
+  theme(legend.position = "bottom") + guides(fill = guide_legend(ncol = 1)) + 
+  xlab("log2 fold change E. lenta DSM 2243 \nvs. sterile controls at 50hr")
+
+ggsave(volcano_plot_gnps, file = paste0(outdir, "volcano_plot_gnps.pdf"), width = 4, height = 5)
+
+volcano_plot_gnps
+
+#### Summary stats
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243", table(FDRCorrect < 0.1 )]
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243" & FDRCorrect < 0.1, table(log2FC > 0)]
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243" & FDRCorrect < 0.1 & log2FC < 0 & MSI != ""]
+
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243", table(MSI=="", FDRCorrect < 0.1)]
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243", fisher.test(table(MSI != "", FDRCorrect < 0.1))]
+
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243" & FDRCorrect < 0.1 & log2FC < 0 & MSI != ""]
+
+
+######## Present/absent plot
+summary_data[,PresentInCtrls:=ifelse(ctrlMeanTP1To4 > 5e4, 1, 0)]
+summary_data[,PresentInCtrls2:=ifelse(ctrlMeanTP1To4 > 3*BK, 1, 0)]
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243", table(PresentInCtrls ==1)]
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243", table(PresentInCtrls2 ==1 & meanValue > 3*BK)]
+
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243", table(ctrlMeanTP1To4  > 1e5)]
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243", table(ctrlMeanTP1To4  > 1e4)]
+
+summary_data[,Present:=ifelse(meanValue > 3*BK, 1, 0)]
+present_in_ctrls_summary_plot <- ggplot(summary_data[Present == 1 & !is.na(FDRCorrect) & Strain == "2243" & AcConc==1], 
+                                        aes(x = factor(Time), fill = factor(ifelse(PresentInCtrls2==0, "Absent in controls", "Present in controls")))) + 
+  geom_bar(stat = "count", position = "stack") + facet_grid(ifelse(MetName %in% c("unknown", "Unknown"),  "Unidentified", "Identified")~ifelse(IonMode == "Neg", "Negative Mode", 'Positive Mode'), scales = "free_y") + 
+  scale_y_continuous(name = "Number of features", expand = c(0,0)) + theme_classic2() + xlab("Time point (hr)") + scale_fill_brewer(palette = "Set1", name = "") +
+  theme(axis.text.x = element_text(size=8))
+
+ggsave(present_in_ctrls_summary_plot, file = paste0(outdir, "presentAbsentCtrlsPlotUpdated.pdf"), width = 6, height = 3.6)
+
+present_in_ctrls_summary_plot
+
+############## Diff abundance plot
+summary_data[,DiffAbund:=case_when(
+  FDRCorrect < 0.1 & log2FC_adj > 0 ~ "Produced", 
+  FDRCorrect < 0.1 & log2FC_adj < 0 ~ "Depleted",
+  TRUE ~ "None"
+)]
+diff_abund_summary_plot <- ggplot(summary_data[!is.na(FDRCorrect) & Strain == "2243" & AcConc==1 & DiffAbund != "None"], aes(x = factor(Time), fill = factor(DiffAbund, levels = c("Produced", "Depleted", "None")))) + 
+  geom_bar(stat = "count", position = "stack") + facet_grid(ifelse(MetName %in% c("unknown", "Unknown"),  "Unidentified", "Identified")~IonMode, scales = "free_y") + 
+  scale_y_continuous(name = "Number of features", expand = c(0,0)) + theme_classic2() + xlab("Time point (hr)") + scale_fill_brewer(palette = "Set1", name = "") +
+  theme(axis.text.x = element_text(size=8)) + scale_x_discrete(limits = summary_data[,factor(sort(unique(Time)))])
+
+ggsave(diff_abund_summary_plot, file = paste0(outdir, "DiffAbundCtrlsPlotUpdated.pdf"), width = 5.5, height = 3.6)
+
+diff_abund_summary_plot
+
+diff_abund_mets <- summary_data[TimePoint==6 & AcConc==1 & Strain == "2243" & !is.na(p.value) & abs(log2FC_adj) > 0.75 & FDRCorrect < 0.1, IDUniq]
+
+
+############################ Heatmap
+summary_data[AcConc==1 & Strain == "2243" ,logZscore:=scale(meanLog10Value), by = IDUniq]
+mean_data_wide <- dcast(summary_data[AcConc==1 & Strain == "2243" & IDUniq %in% diff_abund_mets], IDUniq+MetName+MSI~Time, value.var = "logZscore")
+
+row_labs <- mean_data_wide[,ifelse(MetName %in% c("Unknown", "unknown"), "", paste0(MetName, " (", MSI, ")"))]
+pdf(paste0(outdir, "heatmap_timeCourse_v2.pdf"), width = 5, height = 8)
+Heatmap(as.matrix(mean_data_wide[,4:ncol(mean_data_wide), with=F]), cluster_columns = F, 
+        row_labels = row_labs, row_names_gp = gpar(fontsize= 8), col = c(brewer.pal(3, "Set1")[2], "white", brewer.pal(3, "Set1")[1]))
+dev.off()
+
+
+Heatmap(as.matrix(mean_data_wide[,4:ncol(mean_data_wide), with=F]), cluster_columns = F, 
+        row_labels = row_labs, row_names_gp = gpar(fontsize= 8), col = c(brewer.pal(3, "Set1")[2], "white", brewer.pal(3, "Set1")[1]))
+
+diff_abund_id_mets<- summary_data[TimePoint==6 & AcConc==1 & Strain == "2243" & abs(log2FC_adj) > 1 & FDRCorrect < 0.1 & !grepl("known", MetName), IDUniq]
+
+```
+
+Figure S1 various media analyses
+
+```{r fig_s1}
+####### Figure S1
+named_mets <- data.table(MetName = summary_data[!grepl("known", MetName),sort(unique(MetName))])
+named_mets[c(29, 31, 41, 48, 57, 63, 64, 68, 94, 100, 101, 103, 104, 105, 107, 109, 
+             115, 118, 125, 126, 127, 131), MediaComponent:=1]  
+named_mets[c(29, 31, 41, 48, 57, 63, 64, 68, 94, 100, 101, 103, 104, 105, 107, 109, 
+             115, 118, 125, 126, 127, 131), Category:=c("Amino acids", "Vitamins and Cofactors", "Other", rep("Amino acids", 5),
+                                                        "Vitamins and Cofactors", "Amino acids", "Other", "Amino acids",
+                                                        rep("Vitamins and Cofactors",3), "Amino acids", "Vitamins and Cofactors", 
+                                                        rep("Amino acids", 3), "Other", "Amino acids")]
+summary_data <- merge(summary_data, named_mets, by = "MetName", all.x = T)
+
+mean_data_wide2 <- dcast(summary_data[AcConc==1 & Strain == "2243"], IDUniq+MetName~Time, value.var = "meanLog10Value")
+row_labs <- mean_data_wide2[,ifelse(MetName %in% c("Unknown", "unknown"), "", MetName)]
+
+media_component_plot <- summary_data[MediaComponent==1 & AcConc == 1 & Strain=="2243"] %>% 
+  complete(MetName, IonMode, Time) %>% ggplot(aes(y = factor(MetName, levels = rev(sort(named_mets[,MetName]))), x = factor(Time), fill = meanLog10Value)) + facet_grid(.~IonMode, scales = "free") +
+  geom_tile() + scale_fill_gradient(low = "white", high = brewer.pal(8, "Purples")[8], na.value = "gray80") +
+  xlab("Time (hr)") + ylab("") 
+
+ggsave(media_component_plot, file = paste0(outdir, "media_components_metabolomics.pdf"), width=7, height = 5.5)
+
+media_component_plot
+
+####### compare with Sonnenburg and Bisanz datasets
+## Quick look at sonnenburg data
+invitro_metadata <- fread("../sonnenburg_in_vitro_metadata.txt") 
+samples_interest <- invitro_metadata[grepl("Eggerthella", taxonomy)]
+
+invitro_data <- fread("../sonnenburg_in_vitro_data.txt", fill = T)
+invitro_sub <- invitro_data[V1 %in% samples_interest[,V1]]
+invitro_sub <- melt(invitro_sub, id.var = "V1", variable.name = "compound")
+invitro_sub <- invitro_sub[!is.na(value)]
+invitro_summary <- invitro_sub[,list(median(value), mean(value), sd(value)), by=compound]
+setnames(invitro_summary, c("V1", "V2", "V3"), c("medianLog2FC", "mean_log2FC", "sd_log2FC"))
+invitro_summary[,Prod:=ifelse(medianLog2FC > 0.5, 1, 0)]
+invitro_summary[,Deplete:=ifelse(medianLog2FC < -0.5, 1, 0)]
+invitro_summary[,Outcome:=case_when(
+  Prod==1 ~ "Produced",
+  Deplete==1 ~ "Depleted",
+  TRUE ~"Unchanged"
+)]
+
+
+summary_data_sub <- summary_data[Strain == "2243" & AcConc==1]
+summary_data_sub[,Prod:=ifelse(FDRCorrect < 0.1 & log2FC_adj > 0.5, 1, 0)]
+summary_data_sub[,Deplete:=ifelse(FDRCorrect < 0.1 & log2FC_adj < -0.5, 1, 0)]
+summary_data_sub[,Outcome:=case_when(
+  Prod==1 ~ "Produced",
+  Deplete==1 ~ "Depleted",
+  TRUE ~"Unchanged"
+)]
+
+prev_data <- fread("../../ElentaStrainMetabolomics/DiffAbundAllSummary_filtered_finalNorm.tsv")
+prev_data[,Prod2:=ifelse(T_FDR_pvalue < 0.1 & log2FC > 0.5, 1, 0)]
+prev_data[,Deplete2:=ifelse(T_FDR_pvalue < 0.1 & log2FC < -0.5, 1, 0)]
+prev_data[,Outcome:=case_when(
+  Prod2==1 ~ "Produced",
+  Deplete2==1 ~ "Depleted",
+  TRUE ~"Unchanged"
+)]
+prev_data_sub <- prev_data[SampleID == "Eggerthella_lenta_UCSF2243"]
+prev_data_sub[,MetName:=DB_Compound_Name1]
+prev_data_sub[is.na(MetName), MetName:="Unknown"]
+invitro_summary[,MetName:=compound]
+
+counts_all <- rbind(
+  data.table(summary_data_sub[TimePoint == 6,list(IDUniq, MetName, Outcome)], Dataset = "EDM1"),
+  data.table(prev_data_sub[,list(FeatureID, MetName, Outcome)], Dataset = "Bisanz et al\n(ISP-2+Arg)"),
+  data.table(invitro_summary[,list(compound, Outcome)], Dataset = "Han et al\n(Mega)"), fill = T
+)
+counts_all[,Dataset:=factor(Dataset, levels = c(
+  "Bisanz et al\n(ISP-2+Arg)",
+  "Han et al\n(Mega)",
+  "EDM1"
+))]
+# blue = HSL 7, 2, 255
+# red = rgb 255, 4, 1
+
+count1 <- ggplot(counts_all[Outcome != "Unchanged"], aes(x = Dataset, fill = Outcome)) + geom_bar(position = "dodge") + xlab("In vitro metabolomics dataset") + 
+  ylab("Count") + scale_fill_manual(values = brewer.pal(3, "Set1")[c(2,1)]) + theme(axis.text = element_text(color = "black", size = 8)) +
+  scale_y_continuous(expand = c(0,0))
+
+count2 <- ggplot(counts_all[!grepl("known", MetName) & Outcome != "Unchanged"], aes(x = Dataset, fill = Outcome)) + 
+  geom_bar(position = position_dodge(preserve = "single")) + xlab("In vitro metabolomics dataset")+ ylab("Number of identified metabolite features") +
+  scale_fill_manual(values =  brewer.pal(3, "Set1")[c(2,1)], name = "")+ theme(axis.text = element_text(color = "black", size = 8)) + scale_y_continuous(expand = c(0,0))
+compare_plot <- count1+guides(fill = "none") + count2
+
+ggsave(compare_plot, file = paste0(outdir, "compare_studies_plot.pdf"), width = 6, height = 3)
+
+compare_plot
+
+############## Trajectories Figure S1E
+hclust_results <- hclust(dist(as.matrix(mean_data_wide[,4:ncol(mean_data_wide), with=F])))
+clusts <- cutree(hclust_results, h = 1.6)
+clust_table <- data.table(IDUniq = mean_data_wide[,IDUniq], Clust = clusts)
+plot_dat <- summary_data[AcConc==1 & Strain == "2243" & IDUniq %in% diff_abund_mets]
+plot_dat <- merge(plot_dat, clust_table, by = "IDUniq", all.x = T)
+plot_dat[,Clust2:=factor(paste0("Cluster ", Clust), levels = c(paste0("Cluster ", 1:20)))]
+gnps_color_scale <- c(brewer.pal(12, "Set3")[c(1:2,4:6)], "gray40")
+names(gnps_color_scale) <- c(summary_data[CF_superclass2 != "no matches", sort(unique(CF_superclass2))], "no matches")
+
+good_clusts <- plot_dat[,list(length(unique(IDUniq)), length(unique(MetName[!grepl("known", MetName)]))), by = Clust2][V1 > 4 & V2 > 0, Clust2]
+trajectory_plot <- ggplot(plot_dat[CF_superclass2 == "no matches" & Clust2 %in% good_clusts], 
+                          aes(x = Time, y = logZscore, group = IDUniq, color = CF_superclass2)) + 
+  geom_line(alpha = 0.5) + geom_line(data = plot_dat[CF_superclass2 != "no matches"& Clust2 %in% good_clusts]) + 
+  facet_grid(.~factor(Clust2, levels = good_clusts)) + scale_color_manual(values= gnps_color_scale, name = "Chemical superclass") + 
+  xlab("Time (hr)") + ylab("Scaled log peak height") #+ 
+
+clust_tab2 <- plot_dat[MSI != "",list(IDUniq, MetName, MSI, Clust)] %>% distinct()
+clust_tab2[,DisplayName:=paste0(MetName, " (", MSI, ")")]
+clust_tab2[,CompRank:=rank(MSI, MetName, ties.method = "first"), by = Clust]
+clust_tab2[,CompRank:=max(CompRank)-CompRank]
+clust_tab2[,Clust2:=factor(paste0("Cluster ", Clust), levels = good_clusts)]
+clust_labels <- ggplot(clust_tab2[Clust2 %in% good_clusts], aes(x = 1, y = CompRank, label = DisplayName)) + geom_text(size = 3) + facet_grid(~Clust2, drop = F) + theme_nothing()
+trajectory_plot_all <- trajectory_plot + clust_labels + plot_layout(nrow = 2, heights = c(1, 1.3))
+
+ggsave(trajectory_plot_all, file = paste0(outdir, "hclust_trajectories.pdf"), width = 11, height = 3.5)
+
+trajectory_plot_all
+
+```
+
+# Figure S2 (LOO Growth data)
+
+```{r figS2}
+rm(list = ls())
+### Reanalyze all growth experiments
+library(data.table)
+library(tidyverse)
+library(growthcurver)
+library(cowplot)
+library(patchwork)
+library(readxl)
+library(RColorBrewer)
+library(ggpubr)
+library(ggbeeswarm)
+
+source("scripts/growth_curve_functions.R")
+
+sessionInfo()
+
+main_dir <- "../GrowthExperiments/"
+results_tables <- data.table(read_xlsx(paste0(main_dir, "allGrowthCurveData2021-06-08.xlsx")))
+results_tables <- results_tables[!is.na(ResultsFile)]
+outdir <- "fig_s3/"
+dir.create(outdir)
+
+all_data <- rbindlist(lapply(1:nrow(results_tables), function(x){
+  data <- read_growthcurve_file(paste0(results_tables[x, Directory], "/", results_tables[x, ResultsFile]))
+  data[,Experiment:=results_tables[x, Experiment]]
+  return(data)
+}), fill = T)
+
+all_layouts <- rbindlist(lapply(1:nrow(results_tables), function(x){
+  if(grepl("xlsx", results_tables[x, LayoutFile])){
+    if(!is.na(results_tables[x, as.numeric(LayoutSheet)])){
+      layout <- data.table(read_xlsx(paste0(results_tables[x, Directory], "/", results_tables[x, LayoutFile]), 
+                                     sheet = results_tables[x, as.numeric(LayoutSheet)]))
+    } else {
+      layout1 <- data.table(read_xlsx(paste0(results_tables[x, Directory], "/", results_tables[x, LayoutFile]), 
+                                      sheet = 1))
+      layout2 <- data.table(read_xlsx(paste0(results_tables[x, Directory], "/", results_tables[x, LayoutFile]), 
+                                      sheet = 2))
+      layout1[,Type:="Media"]
+      layout2[,Type:="Strain"]
+      layout <- rbind(layout1[!is.na(Row)], layout2[!is.na(Row)], fill = T)
+    }
+  } else {
+    layout <- fread(paste0(results_tables[x, Directory], "/", results_tables[x, LayoutFile]), header = T)
+  }
+  if(names(layout)[1] %in% c("...1", "V1")){ setnames(layout, names(layout)[1], "Row")}
+  if(!"Type" %in% names(layout)){
+    if(ncol(layout) > 13) layout <- layout[,1:13, with=F]
+    layout[,Type:=ifelse(is.na(Row)|Row == "", "Strain", "Media")]
+    layout[,Row:=sapply(1:nrow(layout), function(x){
+      if(!is.na(layout[x, Row]) & layout[x,Row] != ""){
+        return(layout[x,Row])
+      } else {
+        return(layout[x-1, Row])
+      }
+    })]
+  }
+  layout <- melt(layout, id.var = c("Row", "Type"), variable.name = "Column")
+  layout <- dcast(layout[!is.na(Row)], Row+Column~Type, value.var = "value")
+  layout[,Experiment:=results_tables[x, Experiment]]
+  return(layout)
+}), fill = T)
+## AcArgUracilRflv and AcMinRflvFollowUps have errors in the strain id here
+
+all_layouts[Experiment=="AddCarboxylicAcids" & Column %in% c(2,6,10), Strain:="c"]
+## Fix inconsistent layout issues
+all_layouts[grepl("_c$", Media), Strain:="c"]
+all_layouts[grepl("_c$", Media), Media:=gsub("_c$", "", Media)]
+all_layouts[Experiment %in% c("AminoAcidLOOs", "GMM_LAB_Components2") & grepl("c$", Media), Strain:="c"]
+all_layouts[Experiment %in% c("AminoAcidLOOs", "GMM_LAB_Components2") & grepl("c$", Media), Media:=gsub("c$", "", Media)]
+
+all_layouts[!is.na(Media) & Media != "" & is.na(Strain), Strain:="2243"]
+all_layouts[Strain == "AB8", Strain:="AB8n2"]
+all_layouts[Strain == "Val", Strain:="Valencia"]
+all_layouts <- all_layouts[!is.na(Media) & !is.na(Strain)]
+all_layouts <- all_layouts[Media != "" & Strain != ""]
+aa_names <- data.table(read_xlsx(paste0(results_tables[Experiment == "AminoAcidLOOs", Directory], "/",
+                                        results_tables[Experiment == "AminoAcidLOOs", LayoutFile]), 
+                                 sheet = results_tables[Experiment == "AminoAcidLOOs", OtherInfoSheet]))
+aa_names[,ConditionID:=as.character(ConditionID)]
+all_layouts <- merge(all_layouts, aa_names, by.x = "Media", by.y = "ConditionID", all.x = T)
+all_layouts[!is.na(Condition), Media:=Condition]
+all_layouts[,Condition:=NULL]
+all_layouts[,well:=paste0(Row, Column)]
+
+all_layouts <- all_layouts[!(Experiment == "MineralLOOs" & well == "B8")]
+all_layouts[Experiment == "AddCarboxylicAcids" & Column %in% c(2, 6, 10), Strain:="c"]
+all_layouts[Experiment == "AcArgUracilRflv" & Media == "DM1_50Arg_10Ac", Media:="DM1_50Arg_0Ac"]
+all_layouts[Experiment == "AcArgUracilRflv" & Media == "DM1_50Arg_1Ac", Media:="DM1_50Arg_10Ac"]
+all_layouts[Experiment == "AcArgUracilRflv", ArgConc:=as.numeric(ifelse(grepl("Arg", Media), gsub("DM1_", "", gsub("Arg.*$", "", Media)), 100))]
+all_layouts[Experiment == "AcArgUracilRflv", AcConc:=as.numeric(ifelse(grepl("Ac", Media), gsub("DM1_", "", gsub("[0-9]+Arg_", "", gsub("Ac.*$", "", Media))), 100))]
+all_layouts[,BaseDM1Condition:=ifelse(Media %in% c("DM1", "DM1b", "DM1Ac10",  "DM1_Old", "None-base", "GL", "GLHmOld", "DM1_v2", "DM1_VitMix", "Ac1"), "DM1", "Other")]
+
+all_data[Experiment == "AcArgUracilRflv", time:=time+25.5]
+growth_data_long <- melt(all_data, id.var = c("time", "temp", "Experiment"), variable.name = "well")
+growth_data_long <- merge(growth_data_long, all_layouts, by = c("well", "Experiment"), all.x = T)
+growth_data_long <- growth_data_long[!is.na(Media) & !is.na(value)] #wells without metadata were empty
+
+setnames(all_layouts, "Media", "Condition")
+setnames(growth_data_long, "Media", "Condition")
+
+growth_data_long[Strain == 'c' & time < 28 & Experiment != "GLUACvariants" & value > 0.17, value:=NA] #remove weird early readings
+bad_blank_wells <- growth_data_long[Strain == "c" & (time > 28 & Experiment != "GLUACvariants"), length(value[value > 0.25]), by = list(well, Experiment)][V1 > 10]
+bad_blank_wells2 <- growth_data_long[,length(value[time < 4 & value > 0.3& Experiment != "GLUACvariants"]), by=list(well, Experiment)][V1 > 1]
+bad_blank_wells3 <- growth_data_long[Strain == "c", (median(value[time > (max(time)-10)], na.rm = T)-median(value[time < 10])), by = list(well, Experiment)][V1 > 0.06]
+bad_blank_wells <- unique(rbind(bad_blank_wells[,list(well, Experiment)], bad_blank_wells2[,list(well, Experiment)], bad_blank_wells3[,list(well, Experiment)]))
+bad_blank_wells[,BadBlank:=1]
+growth_data_long <- merge(growth_data_long, bad_blank_wells[,list(Experiment, well, BadBlank)], by = c("Experiment", "well"), all.x = T)
+all_layouts <- merge(all_layouts, bad_blank_wells[,list(Experiment, well, BadBlank)], by = c("Experiment", "well"), all.x = T)
+blank_wells1 <- all_layouts[Strain=="c" & is.na(BadBlank), list(Experiment, well, Condition)]
+
+### Normalize all data
+corrected_data_all <- rbindlist(lapply(1:nrow(results_tables), function(j){
+  exp <- results_tables[j, Experiment]
+  blank_wells <- blank_wells1[Experiment == exp, well]
+  names(blank_wells) <- blank_wells1[Experiment == exp, Condition]
+  corrected_data <- correct_growth_data_custom(growth_data_long[Experiment == exp], blank_wells = blank_wells, 
+                                               method = "blankTimeMatch", wide_form = F)
+  corrected_data[,Experiment:=exp]
+}), fill = T)
+
+problem_wells <- corrected_data_all[,sum(NewValue < 0), by=list(Experiment, well)][V1 > 0]
+corrected_data_all[Experiment == "GLUACvariants",NewValue:=NewValue - min(NewValue, na.rm = T), by = list(Experiment, well)]
+corrected_data_all[,NewValue:=NewValue - min(NewValue, na.rm = T), by = list(Experiment, well)]
+
+### Reassign one sub-experiment
+all_layouts[Experiment == "AgmatineCombinations" & grepl("old", Condition, ignore.case = T), Experiment:="DM1OldB12Old"]
+corrected_data_all[Experiment == "AgmatineCombinations" & well %in% all_layouts[Experiment == "DM1OldB12Old", well], Experiment:="DM1OldB12Old"]
+
+growth_data_norm <- dcast(corrected_data_all, Experiment+time~well, value.var = "NewValue", fill = NA)
+
+experiment_list <- corrected_data_all[,sort(unique(Experiment))]
+trim_after_times <- rep(52, length(experiment_list))
+trim_after_times[which(experiment_list == "AcArgUracilRflv")] <- 64
+trim_after_times[which(experiment_list == "AcetateDosesStrains2")] <- 44
+trim_after_times[which(experiment_list == "AcetateDosesStrains")] <- 40
+
+## Fit logistic models
+model_fits <- rbindlist(lapply(1:length(experiment_list), function(x) {
+  exp <- experiment_list[x]
+  foo <- fit_growthcurver_models(growth_data_norm[Experiment == exp, 2:ncol(growth_data_norm), with=F], 
+                                 indiv_fits = T, trim_after = trim_after_times[x]) #, nrow(growth_data_norm[Experiment == exp & time < 0.5]
+  foo[,Experiment:=exp]
+  return(foo)
+}), fill = T)
+model_fits <- merge(model_fits, all_layouts[,list(Experiment, well, Strain, Condition, BaseDM1Condition)], by.x = c("Experiment", "Sample"), by.y = c("Experiment", "well"), all.x = F)
+model_fits[,Category:=gsub("[0-9]$", "", Experiment)]
+
+## Calculate Percent of base version
+base_models <- model_fits[BaseDM1Condition == "DM1"]
+base_models[,BadFit:=ifelse(k > 1 | sigma > 0.1, 1, 0)]
+base_model_summary <- base_models[BadFit==0 & Strain == "2243",list(1/mean(sapply(r[!is.na(r)], function(x){ 1/x})), sd(r), mean(k), sd(k), mean(N0), sd(N0), mean(t_mid), sd(t_mid), mean(t_gen), sd(t_gen), mean(auc_l), sd(auc_l), mean(auc_e), sd(auc_e)), by=list(Strain, Experiment)]
+## Split "old' comparison into its own experiment
+
+bad_base <- c("AminoAcidLOOs", "GLUACvariants", "GMM_LAB_Components2")
+mean_base_good <- base_model_summary[!Experiment %in% bad_base,
+                                     lapply(.SD, mean), .SDcols=paste0("V", seq(1,13,by=2))]
+
+model_fits_compare <- merge(model_fits[Strain != "c"], base_model_summary[!Experiment %in% bad_base], by = "Experiment", all.x = T)
+model_fits_compare[is.na(V1), V1:=mean_base_good[,V1]]
+model_fits_compare[is.na(V3), V3:=mean_base_good[,V3]]
+model_fits_compare[is.na(V5), V5:=mean_base_good[,V5]]
+model_fits_compare[is.na(V7), V7:=mean_base_good[,V7]]
+model_fits_compare[is.na(V9), V9:=mean_base_good[,V9]]
+model_fits_compare[is.na(V11), V11:=mean_base_good[,V11]]
+model_fits_compare[is.na(V13), V13:=mean_base_good[,V13]]
+
+model_fits_compare[,FractionAUC_e:=auc_e/V13]
+model_fits_compare[,FractionAUC_l:=auc_l/V11]
+
+loo_dat <- model_fits[Experiment %in% c("AminoAcidLOOs", "MineralLOOs", "VitaminLOOs", "VitaminLOOs2", "VitaminLOOs3", "DM1OldB12Old", "AminoAcidLOORedo")| Experiment %in%
+                                        c("AgmatineCombinations", "DM1OldB12Old")|(Experiment == "AcArgUracilRflv" & Condition %in% c("DM1b", "DM1bNoUracil")|(Experiment == "AddCarboxylicAcids" & Condition %in% c("Ac1", "Ac0")))]
+
+condition_info <- unique(loo_dat[,list(Experiment, BaseDM1Condition, Condition)])
+condition_info[BaseDM1Condition == "DM1", LOO:="DM1"]
+condition_info[is.na(LOO),LOO:=c("Uracil", "Acetate", rep(NA, 12), "B12", "Arg", "Leu", "Lys", "Cys","His", "Ile", "Met","Trp", "Tyr",
+                                 "Phe","Ser", "Thr", "Val", "Pro",NA,
+                                 "Acetate",NA, NA, NA,
+                       "Arg", rep(NA, 4), "His", "Cys", "Ile", "Lys", "Leu", "Met", "Ser", "Phe", "Thr", "Tyr","Trp", "Val", "Pro", "B12",
+                       "Ni", "Zn", "H3BO3", "WO4", "Mg", "Mn", "Mo", "Fe", "Ca", "HCO3", "NO3", "Co", "Cu", NA, NA,NA, "Ascorbic acid", "B12", NA,
+                       "NAD+", "Pyridoxamine", "Pantothenate", "Folate", "Menadione", "Thiamine","Biotin", "Riboflavin",
+                       "Hemin", "p-aminobenzoate", NA, NA, "Ascorbic acid", "B12", NA, "NAD+", "Pyridoxamine", "Pantothenate", "Folate", "Menadione",
+                       "Thiamine", "Biotin", "Riboflavin", "Hemin", "p-aminobenzoate", NA, NA, NA, "p-aminobenzoate", "Pantothenate", NA, "NAD+", "B12",
+                       "Thiamine", NA, "Biotin", "Riboflavin", "Hemin", NA, NA, NA)]
+condition_info <- condition_info[!(Experiment == "AminoAcidLOOs" & LOO == "Acetate")]
+condition_info[!is.na(LOO),LOOCategory:=c("Other", "Other", "Other", "Other","Vitamins", "Vitamins", rep("Amino acids", 15),
+                                          rep("Amino acids", 15), "Vitamins", "Vitamins",
+                                          rep("Minerals", 14), rep("Vitamins", 35))]
+condition_info[LOO=="DM1", LOOCategory:="DM1"]
+condition_info[,LOOCategory:=factor(LOOCategory, levels = c("DM1", "Amino acids", "Vitamins", "Minerals", "Other"))]
+levels(condition_info$LOOCategory) <- c("Full DM1", "Amino acid dropouts", "Vitamin dropouts", "Mineral dropouts", "Other dropouts")
+
+corrected_data_all[,Time2:=round(time, digits = 1)]
+corrected_data_all[,Condition2:=ifelse(Condition == "DM1", paste0(Condition, "_", Experiment), Condition)]
+corrected_data_all[,Condition3:=paste0(Condition, "_", Experiment)]
+average_dat <- corrected_data_all[Strain == "2243" & Experiment != "VitaminLOOs2" & (grepl("LOO", Experiment)|
+                                                        Experiment %in% c("AgmatineCombinations", "DM1OldB12Old")|
+                                                        (Experiment == "AcArgUracilRflv" & Condition %in% c("DM1b", "DM1bNoUracil"))|
+                                                        (Experiment == "AddCarboxylicAcids" & Condition %in% c("Ac1", "Ac0"))),
+                                  list(mean(NewValue), sd(NewValue)/sqrt(length(NewValue))), 
+                                  by = list(Experiment,Condition2, Condition, Strain, Time2)]
+average_dat_sub <- merge(average_dat, unique(condition_info[!is.na(LOO)]), by =c("Condition", "Experiment"), all.x = F)
+setnames(average_dat_sub, "Time2", "time")
+
+model_fits_compare <- merge(model_fits_compare, condition_info, by = c("Experiment", "Condition"), all.x = T)
+loo_order2 <- model_fits_compare[!is.na(LOO),median(FractionAUC_l), by=LOO][order(V1), LOO]
+model_fits_compare[,LOO:=factor(LOO, levels = loo_order2)] #rev(loo_colors)
+model_fits_compare <- model_fits_compare[Strain.x == "2243"]
+model_fits_compare[,Category2:=factor(gsub(" dropouts", "s", as.character(LOOCategory)), levels = c("Full DM1", "Amino acids", "Vitamins", "Minerals", "Others"))]
+
+model_fits_compare[,FracTMid:=t_mid/V7]
+model_fits_compare[,FracK:=k/V3]
+model_fits_compare[,FracR:=r/V1]
+setnames(model_fits_compare, c(paste0("V", 1:14)), paste0("base_", c("r_mean", "r_sd", "k_mean", "k_sd", "N0_mean", "N0_sd", 
+                                                                     "tmid_mean", "tmid_sd", "tgen_mean", "tgen_sd", "aucL_mean", "aucL_sd", "aucE_mean", "aucE_sd")))
+
+corrected_data_sub <- merge(corrected_data_all[Strain == "2243" & (grepl("LOO", Experiment)|
+                                                                     Experiment %in% c("AgmatineCombinations", "DM1OldB12Old")|
+                                                                     (Experiment == "AcArgUracilRflv" & Condition %in% c("DM1b", "DM1bNoUracil"))|
+                                                                     (Experiment == "AddCarboxylicAcids" & Condition %in% c("Ac1", "Ac0")))], unique(condition_info[!is.na(LOO)]), by = c("Experiment", "Condition"), all.x = F)
+loo_colors <- condition_info[!is.na(LOO)][order(LOOCategory, LOO)][,unique(LOO)]
+average_dat_sub[,LOO:=factor(LOO, levels = loo_colors)]
+average_dat_sub[,Group2:=ifelse(LOO != "DM1", as.character(LOOCategory), Experiment)]
+average_dat_sub[LOO == "DM1" & (grepl("Vitamin", Experiment)|grepl("B12", Experiment)|grepl("Agma", Experiment)), Group2:="Vitamin dropouts"]
+average_dat_sub[LOO == "DM1" & (grepl("Mineral", Experiment)) , Group2:="Mineral dropouts"]
+average_dat_sub[LOO == "DM1" & (grepl("Amino", Experiment)) , Group2:="Amino acid dropouts"]
+average_dat_sub[LOO == "DM1" &  (grepl("Ac", Experiment)|grepl("Urac", Experiment)) , Group2:="Other dropouts"]
+average_dat_sub <- average_dat_sub[!(Experiment == "AminoAcidLOOs" & LOO=="DM1" & Group2=="Other dropouts")]
+average_dat_sub[,Group2:=factor(Group2, levels = c("Amino acid dropouts", "Vitamin dropouts", "Mineral dropouts", "Other dropouts"))]
+
+
+### Plots
+## Get summary parameters
+category_colors <- c(brewer.pal(8, "Dark2")[c(1,4,5, 3)])
+category_colors <- c(brewer.pal(8, "Set3")[c(4,5,6,3)])
+names(category_colors) <- c("Amino acids", "Vitamins", "Minerals", "Others")
+category_colors2 <- category_colors
+names(category_colors2)[1] <- "Amino acids &\nother carbon sources"
+
+model_fits_compare_good2 <- model_fits_compare[!is.na(LOO) & LOOCategory != "Full DM1" & 
+                                                 Experiment != "VitaminLOOs2" & Strain.x=="2243"]
+model_fits_compare_good2 <- model_fits_compare_good2[(sigma < 0.15|r_se > 10) & base_k_mean < 1] ## Bad fits, don't lose any LOO data
+fwrite(model_fits_compare_good2, file = paste0(outdir, "growth_curve_resultsAllSummaryParams_LOO.txt"), sep = "\t")
+
+model_fits_compare_good2b <- melt(model_fits_compare_good2, id.var = c("LOOCategory", "LOO", "Sample", "Condition", "Experiment"), 
+                                  measure.vars = c("auc_e", "t_mid", "k", "r"))
+model_fits_compare_good2b[,LOOCategory2:=gsub(" dropouts", "s", as.character(LOOCategory))]
+median_fracs2b <- model_fits_compare_good2b[Experiment !="VitaminLOOs2" & value < 100,median(value),
+                                            by = list(LOOCategory, LOOCategory2, LOO, variable)]
+median_fracs2b[, LOOCategory3:=ifelse(LOOCategory2 %in% c("Others", "Amino acids"), "Amino acids &\nother carbon sources", LOOCategory2)]
+median_fracs2b[,LOOCategory3:=factor(LOOCategory3, levels = names(category_colors2[1:3]))]
+base_means <- unique(model_fits_compare_good2[,list(Experiment, base_aucE_mean, base_tmid_mean, base_k_mean, base_r_mean)])
+base_means <- data.table(variable = c("auc_e", "t_mid", "k", "r"), baseVal = c(median(base_means$base_aucE_mean), median(base_means$base_tmid_mean), median(base_means$base_k_mean), median(base_means$base_r_mean)))
+parameter_hists2 <- ggplot(median_fracs2b, aes(x = V1, fill = LOOCategory3))+ 
+  theme(strip.background = element_blank(), panel.border = element_rect(color = "black", fill = NA)) +
+  geom_vline(data = base_means, aes(xintercept = baseVal), linetype = 2) + geom_histogram(bins = 15) + 
+  facet_grid(LOOCategory3 ~ variable, scales = "free") +
+  scale_fill_manual(values = category_colors2[1:3], name = "", guide = "none") + xlab("") + ylab("Number of compounds")
+
+ggsave(parameter_hists2, file = paste0(outdir, "growth_parameter_histograms_clas_absVal.pdf"), width = 6.3, height = 4.5)
+
+parameter_hists2
+
+### Diff abund tests
+
+base_models_sub <- base_models[BadFit==0 & Strain == "2243" & Experiment %in% model_fits_compare_good2b[,Experiment]]
+unique_loos <- model_fits_compare_good2[Experiment != "VitaminLOOs2",unique(LOO)]
+unique_loo_r_pvals <- sapply(unique_loos, function(x){
+  exp1 <- model_fits_compare_good2[LOO==x]
+  base_exp <- base_models_sub[Experiment %in% exp1$Experiment]
+  foo <- wilcox.test(exp1$r, base_exp$r)$p.value
+  return(foo)
+})
+unique_loo_k_pvals <- sapply(unique_loos, function(x){
+  exp1 <- model_fits_compare_good2[LOO==x]
+  base_exp <- base_models_sub[Experiment %in% exp1$Experiment]
+  foo <- wilcox.test(exp1$k, base_exp$k)$p.value
+  return(foo)
+})
+unique_loo_tmid_pvals <- sapply(unique_loos, function(x){
+  exp1 <- model_fits_compare_good2[LOO==x]
+  base_exp <- base_models_sub[Experiment %in% exp1$Experiment]
+  foo <- wilcox.test(exp1$t_mid, base_exp$t_mid)$p.value
+  return(foo)
+})
+unique_loo_auc_pvals <- sapply(unique_loos, function(x){
+  exp1 <- model_fits_compare_good2[LOO==x]
+  base_exp <- base_models_sub[Experiment %in% exp1$Experiment]
+  foo <- wilcox.test(exp1$auc_e, base_exp$auc_e)$p.value
+  return(foo)
+})
+diff_results <- data.table(LOO = unique_loos, r = unique_loo_r_pvals, k = unique_loo_k_pvals, tmid = unique_loo_tmid_pvals, auc = unique_loo_auc_pvals)
+diff_results[,r_padj:=p.adjust(r, method = "BH")]
+diff_results[,k_padj:=p.adjust(k, method = "BH")]
+diff_results[,tmid_padj:=p.adjust(tmid, method = "BH")]
+diff_results[,auc_padj:=p.adjust(auc, method = "BH")]
+diff_results[,table(r_padj < 0.1|k_padj < 0.1|tmid_padj < 0.1|auc_padj < 0.1)]
+fwrite(diff_results, file = paste0(outdir, "loo_diffAbundWilcoxonGrowthParamsVsBase.csv"))
+
+#Summary by compound
+median_fracs <- model_fits_compare_good2b[Experiment !="VitaminLOOs2",median(value), by = list(LOOCategory, LOOCategory2, LOO, variable)]
+median_fracs[, LOOCategory3:=ifelse(LOOCategory2 %in% c("Others", "Amino acids"), "Amino acids &\nother carbon sources", LOOCategory2)]
+median_fracs[,LOOCategory3:=factor(LOOCategory3, levels = names(category_colors2[1:3]))]
+median_fracs[,log2Effect:=log2(V1)]
+median_fracs[log2Effect > 0.5 | log2Effect < -1, unique(LOO)]
+
+median_fracs_wide <- dcast(median_fracs, LOOCategory+LOOCategory2+LOO~variable, value.var = "V1")
+
+comp_subset <- unique(model_fits_compare_good2b[, list(LOO, Experiment)])
+comp_subset <- comp_subset[!Experiment %in% c("AminoAcidLOOs", "VitaminLOOs2")]
+comp_subset <- comp_subset[!(Experiment == "VitaminLOOs" & LOO %in% comp_subset[Experiment != "VitaminLOOs", unique(LOO)])]
+
+model_summary2 <- model_fits_compare_good2[!is.na(LOO),list(length(unique(Experiment)), length(Sample), 1/mean(sapply(r[!is.na(r) & r != 0], function(x){ 1/x})), sd(r), mean(k), sd(k), mean(N0), sd(N0),
+                                           mean(sigma), sd(sigma), mean(auc_l), sd(auc_l), mean(auc_e), sd(auc_e)), by = LOO]
+setnames(model_summary2, c("LOO", "Number of Experiments", "Total number of replicates", "r_mean", "r_sd", "k_mean", "k_sd", "N0_mean", "N0_sd",
+                           "sigma_mean", "sigma_sd", "auc_l_mean", "auc_l_sd", "auc_e_mean", "auc_e_sd"))  
+base_summary <- data.table(LOO = "EDM1", base_models_sub[,list(length(unique(Experiment)), length(Sample), 1/mean(sapply(r[!is.na(r) & r != 0], function(x){ 1/x})), sd(r), mean(k), sd(k), mean(N0), sd(N0),
+                                     mean(sigma), sd(sigma), mean(auc_l), sd(auc_l), mean(auc_e), sd(auc_e))])
+setnames(base_summary, c("LOO", "Number of Experiments", "Total number of replicates", "r_mean", "r_sd", "k_mean", "k_sd", "N0_mean", "N0_sd",
+                           "sigma_mean", "sigma_sd", "auc_l_mean", "auc_l_sd", "auc_e_mean", "auc_e_sd"))  
+
+model_summary2 <- rbind(base_summary, model_summary2, fill = T)
+fwrite(model_summary2, file = paste0(outdir, "suppTable_loo_growth_summary.tsv"), quote=F, sep= "\t")
+
+comp_subset2 <- sort(unique(comp_subset[,LOO]))
+average_dat_sub2 <- merge(average_dat_sub, comp_subset, by = c("LOO", "Experiment"), all.x = F)
+average_dat_sub2 <- rbind(average_dat_sub2, average_dat_sub[LOO=="DM1" & Experiment %in% average_dat_sub2[,unique(Experiment)]], fill = T)
+
+## Split it up for each compound
+
+average_dat3 <- data.table()
+for(j in 1:nrow(comp_subset)){
+  dat_sub <- average_dat_sub2[Experiment == comp_subset[j, Experiment] & (LOO=="DM1" | LOO == comp_subset[j, LOO])]
+  dat_sub[,LOOGroup:=comp_subset[j, LOO]]
+  average_dat3 <- rbind(average_dat3, dat_sub)
+}
+average_dat3 <- merge(average_dat3, unique(model_fits_compare_good2b[,list(LOO, LOOCategory2)]), by.x = "LOOGroup", by.y = "LOO", all.x = T)
+
+average_dat3[,ColorCol:=ifelse(LOO=="DM1", "EDM1", as.character(LOOCategory2))]
+color_set <- c(category_colors, "grey50")
+names(color_set)[5] <- "EDM1"
+average_dat3[,LOOCategory2:=factor(LOOCategory2, levels = c("Amino acids", "Vitamins", "Minerals", "Others"))]
+effect_ranking <- median_fracs_wide[order(auc_e), LOO]
+average_dat3 <- average_dat3[!(LOOGroup=="B12" & Experiment %in% c("DM1OldB12Old", "VitaminLOOs3"))]
+                                           
+average_dat3[,OrderedLOO:=factor(LOOGroup, levels = effect_ranking)]
+comp_order <- unique(average_dat3[order(LOOCategory2), LOOGroup])
+facet_effect_plot <- ggplot(average_dat3[Condition2 != "DM1_v2"], aes(x = time, ymin = V1-V2, ymax = V1+V2, fill = ColorCol, group = Condition2)) + geom_ribbon(alpha = 0.4) + geom_line(aes(y = V1, color = ColorCol)) +
+  ylab("E. lenta DSM 2243 abundance (normalized OD600)") + xlab("Time (hr)") + facet_wrap(~factor(LOOGroup, levels = comp_order), ncol = 7) + theme_bw() + scale_color_manual(values = color_set, name = "Removed compound class") + scale_fill_manual(values = color_set, name = "Removed compound class") + theme(strip.background= element_blank(), panel.grid = element_blank()) + xlim(0, 78)
+
+ggsave(facet_effect_plot, file = paste0(outdir, "allGrowthCurveLOOs.pdf"), width = 7.3, height = 6)
+
+fwrite(average_dat3, file = paste0(outdir, "finalAvgLOOgrowthdata.csv"))
+
+facet_effect_plot
+
+
+all_growth_data <- corrected_data_all[(Strain %in% c("2243", "c") & (Experiment != "VitaminLOOs2" & (grepl("LOO", Experiment))|
+                                                                                       Experiment %in% c("DM1OldB12Old")|
+                                                                                       (Experiment == "AcArgUracilRflv" & Condition %in% c("DM1b", "DM1bNoUracil")|
+                                                                                       Experiment == "AddCarboxylicAcids")) |(Experiment == "AgmArgCitrl" & !grepl("Base2", Condition2)))|Experiment == "PantothenateStrains"|Experiment=="AcetateDosesStrains"]
+fwrite(all_growth_data, file = paste0(outdir, "growthDataPaperAll.txt"), sep = "\t")
+
+
+```
+
+# Figure 2 (unlabeled data)
+
+```{r fig2}
+rm(list = ls())
+
+library(data.table)
+library(ggplot2)
+library(cowplot)
+library(readxl)
+library(tidyverse)
+library(webchem)
+library(vegan)
+library(RColorBrewer)
+library(ggpubr)
+library(ComplexHeatmap)
+library(santaR)
+library(ggrepel)
+
+theme_set(theme_classic2())
+datadir <- ""
+outdir <- "figure2/"
+dir.create(outdir) # Gives a warning if it already exists
+
+sessionInfo()
+
+processed_data <- fread("processedDatasets/timecourse_all_data.csv")
+summary_data <- fread("processedDatasets/timecourse_mean_summaries.csv")
+growth_file = "../TimeCourse_take2_2020-8-17/ODdata.xlsx"
+growth_data = read_xlsx(growth_file, sheet = 1)
+time_pts = read_xlsx(growth_file, sheet = 2)
+time_pts = data.table(time_pts %>% mutate(TimePoint = as.numeric(gsub("TP", "", TimePoint))))
+growth_data = data.table(growth_data) %>% melt(id.var = c("Strain", "AcConc", "Replicate"))
+growth_data[,Time:=as.numeric(gsub(".*_", "", variable))]
+growth2 = growth_data
+setnames(growth2, "value", "OD600")
+growth2[Time==41.5, Time:=42]
+growth2[Time==26.5, Time:=26]
+growth2[Time==30.5, Time:=30]
+mean_growth2 = growth2[, .(meanOD =mean(OD600), sdOD = sd(OD600)), by=list(Strain, AcConc, Time)]
+mean_data2 = processed_data[Sample != "c_10_TP1_1_R1",list(meanValue = mean(value), SD_Value = sd(value)), by=list(Time, TimePoint, AcConc, Strain, IonMode, IDUniq, AlignmentID, MetName, MSI)]
+mean_data2[,Strain:=factor(Strain, levels = c("2243", "AB8", "Val", "Ctrl"))]
+
+## Which mets are significantly diff with acetate 0 vs 1?
+santaR_metadata <- unique(processed_data[Strain == "2243" & AcConc %in% c(0,1), list(Sample, Time, AcConc)])[order(Sample)]
+santaR_metadata[,TubeSample:=gsub("_TP[0-9]", "", Sample)]
+santaR_metadata <- column_to_rownames(santaR_metadata, "Sample")
+
+santaR_data <- column_to_rownames(dcast(processed_data[Strain == "2243" & AcConc %in% c(0,1)], Sample~IDUniq, value.var = "log10value"), "Sample")
+inData <- data.frame(santaR_data)
+inMeta <- data.frame(santaR_metadata)
+save(inMeta, inData, file = paste0(outdir, "timeCourse2SantaRFormat_Acetate0vs1.Rdata"))
+test1 <- santaR_auto_fit(inputData = inData, ind = inMeta$TubeSample, time = inMeta$Time, 
+                         group = inMeta$AcConc, pval.dist = T, CBand = F, df = 3, ncores = 24)
+save(test1, file = paste0(outdir, "santaR_acetate0v1results.rda"))
+all_pvals <- sapply(test1, function(x){ return(x$general$pval.dist)})
+hist(all_pvals, breaks = 50)
+
+santar_results <- data.table(IDUniq = gsub("^X", "", names(test1)), PVal = all_pvals)
+santar_summary <- santaR_auto_summary(test1)
+santar_summary_ac0v1 <- data.table(rownames_to_column(santar_summary$pval.all, "IDUniq"))
+santar_summary_ac0v1[,IDUniq:=gsub("^X", "", IDUniq)]
+setnames(santar_summary_ac0v1, names(santar_summary_ac0v1)[2:6], paste0("Ac0v1_", names(santar_summary_ac0v1)[2:6]))
+variable_features3 <- santar_summary_ac0v1[Ac0v1_dist_BH < 0.25, IDUniq]
+
+#Must also be signif diff from ctrls at final time point in at least 1 group
+variable_features3 <- variable_features3[variable_features3 %in% summary_data[FDRCorrect < 0.2 & !is.na(FDRCorrect) & TimePoint==6 & Strain == 2243, unique(IDUniq)]]
+
+processed_data[,ZScoreLog:=scale(log10value), by=list(IDUniq, Strain)]
+
+mean_dat_plot <- processed_data[Strain %in% c("2243", "AB8", "Val") & AcConc %in% c(0,1, 10) & IDUniq %in% variable_features3 & Duplicate == 0, 
+                                mean(ZScoreLog), by = list(Strain, AcConc, IDUniq,  MetName, MSI,Time, CF_superclass)]
+
+
+mean_dat_plot[,DuplicateID:=length(unique(IDUniq)), by=MetName]
+
+feat_list <- mean_dat_plot[!MetName %in% c("Unknown", "unknown") & Strain == 2243 & !(DuplicateID==2 & grepl("Pos", IDUniq)), unique(IDUniq)]
+variable_feat_order_sub <- variable_features3[variable_features3 %in% feat_list]
+label_names <- sapply(variable_feat_order_sub, function(x){ return(mean_dat_plot[IDUniq==x, MetName][1])})
+
+mean_dat_plot_wide <- dcast(mean_dat_plot[IDUniq %in% variable_feat_order_sub & Strain == 2243], IDUniq~AcConc+Time, value.var = "V1")
+label_names <- sapply(mean_dat_plot_wide[,IDUniq], function(x){ return(mean_dat_plot[IDUniq==x, paste0(MetName, " (", MSI, ")")][1])})
+
+Heatmap(mean_dat_plot_wide[,2:ncol(mean_dat_plot_wide)], cluster_columns = F, col = c(brewer.pal(3, "Set1")[c(2,1)], "white")[c(1,3,2)], 
+        row_labels = label_names, row_names_gp = gpar(fontsize = 7), column_split = factor(c(rep("0mM", 6), rep("1mM", 6), rep("10mM", 6)), levels = c("0mM", "1mM", "10mM")), 
+        cluster_column_slices = F, column_labels = c(rep(c(sort(unique(mean_dat_plot[,Time]))), 3)), 
+        column_names_rot = 0, column_names_gp = gpar(fontsize = 8))
+
+pdf(paste0(outdir, "acetate_heatmap_vX.pdf"), width = 7, height = 5.6)
+Heatmap(mean_dat_plot_wide[,2:ncol(mean_dat_plot_wide)], cluster_columns = F, col = c(brewer.pal(3, "Set1")[c(2,1)], "white")[c(1,3,2)], 
+        row_labels = label_names, row_names_gp = gpar(fontsize = 7), column_split = factor(c(rep("0mM", 6), rep("1mM", 6), rep("10mM", 6)), levels = c("0mM", "1mM", "10mM")), 
+        cluster_column_slices = F, column_labels = c(rep(c(sort(unique(mean_dat_plot[,Time]))), 3)), 
+        column_names_rot = 0, column_names_gp = gpar(fontsize = 8))
+dev.off()
+
+
+############ Growth of all 3 strains
+mean_growth <- growth2[,list(mean(OD600), sd(OD600)/sqrt(length(OD600))), by = list(Time, AcConc, Strain)]
+growth_all <- ggplot(mean_growth[AcConc != "0Add10"], aes(x = Time, y = V1, color = AcConc)) + geom_line() + geom_errorbar(width = 0, aes(ymin = V1-V2, ymax = V1+V2)) + geom_point() + facet_wrap(~Strain, nrow = 3) + scale_color_manual(values = brewer.pal(5, "Blues")[3:5]) + ylab("OD600") + xlab("Time (hr)")
+
+ggsave(growth_all, file = paste0(outdir, "acetateExperimentGrowth.pdf"), width = 3.5, height = 6)
+
+growth_all
+
+############## AB8 and Valencia SantaR
+## Which mets are significantly diff with acetate 0 vs 1 for each of these strains?
+santaR_metadata <- unique(processed_data[Strain == "AB8" & AcConc %in% c(0,1), list(Sample, Time, AcConc)])[order(Sample)]
+santaR_metadata[,TubeSample:=gsub("_TP[0-9]", "", Sample)]
+santaR_metadata <- column_to_rownames(santaR_metadata, "Sample")
+
+santaR_data <- column_to_rownames(dcast(processed_data[Strain == "AB8" & AcConc %in% c(0,1)], Sample~IDUniq, value.var = "log10value"), "Sample")
+inData <- data.frame(santaR_data)
+inMeta <- data.frame(santaR_metadata)
+save(inMeta, inData, file = paste0(outdir, "timeCourse2SantaRFormat_AB8_Acetate0vs1.Rdata"))
+test1 <- santaR_auto_fit(inputData = inData, ind = inMeta$TubeSample, time = inMeta$Time, 
+                         group = inMeta$AcConc, pval.dist = T, CBand = F, df = 3, ncores = 24)
+save(test1, file = paste0(outdir, "santaR_acetate0v1results_AB8.rda"))
+all_pvals <- sapply(test1, function(x){ return(x$general$pval.dist)})
+hist(all_pvals, breaks = 50)
+
+santar_results <- data.table(IDUniq = gsub("^X", "", names(test1)), PVal = all_pvals)
+santar_summary <- santaR_auto_summary(test1)
+santar_summary_ac0v1 <- data.table(rownames_to_column(santar_summary$pval.all, "IDUniq"))
+santar_summary_ac0v1[,IDUniq:=gsub("^X", "", IDUniq)]
+setnames(santar_summary_ac0v1, names(santar_summary_ac0v1)[2:6], paste0("Ac0v1_", names(santar_summary_ac0v1)[2:6]))
+variable_features_ab8 <- santar_summary_ac0v1[Ac0v1_dist_BH < 0.25, IDUniq]
+
+###### Valencia
+santaR_metadata <- unique(processed_data[Strain == "Val" & AcConc %in% c(0,1), list(Sample, Time, AcConc)])[order(Sample)]
+santaR_metadata[,TubeSample:=gsub("_TP[0-9]", "", Sample)]
+santaR_metadata <- column_to_rownames(santaR_metadata, "Sample")
+
+santaR_data <- column_to_rownames(dcast(processed_data[Strain == "Val" & AcConc %in% c(0,1)], Sample~IDUniq, value.var = "log10value"), "Sample")
+inData <- data.frame(santaR_data)
+inMeta <- data.frame(santaR_metadata)
+save(inMeta, inData, file = paste0(outdir, "timeCourse2SantaRFormat_Val_Acetate0vs1.Rdata"))
+test1 <- santaR_auto_fit(inputData = inData, ind = inMeta$TubeSample, time = inMeta$Time, 
+                         group = inMeta$AcConc, pval.dist = T, CBand = F, df = 3, ncores = 24)
+save(test1, file = paste0(outdir, "santaR_acetate0v1results_Val.rda"))
+all_pvals <- sapply(test1, function(x){ return(x$general$pval.dist)})
+hist(all_pvals, breaks = 50)
+
+santar_results <- data.table(IDUniq = gsub("^X", "", names(test1)), PVal = all_pvals)
+santar_summary <- santaR_auto_summary(test1)
+santar_summary_ac0v1 <- data.table(rownames_to_column(santar_summary$pval.all, "IDUniq"))
+santar_summary_ac0v1[,IDUniq:=gsub("^X", "", IDUniq)]
+setnames(santar_summary_ac0v1, names(santar_summary_ac0v1)[2:6], paste0("Ac0v1_", names(santar_summary_ac0v1)[2:6]))
+variable_features_val <- santar_summary_ac0v1[Ac0v1_dist_BH < 0.25, IDUniq]
+
+
+############################ Heatmap all strains (Figure S3)
+variable_feat_all <- sort(unique(c(variable_features3, variable_features_ab8, variable_features_val)))
+
+mean_dat_plot <- processed_data[Strain %in% c("2243", "AB8", "Val") & AcConc %in% c(0,1, 10) & IDUniq %in% variable_feat_all & Duplicate == 0, 
+                                mean(ZScoreLog), by = list(Strain, AcConc, IDUniq,  MetName, MSI,Time, CF_superclass)]
+mean_dat_plot[,DuplicateID:=length(unique(IDUniq)), by=MetName]
+
+feat_list <- mean_dat_plot[!MetName %in% c("Unknown", "unknown") & Strain == 2243 & !(DuplicateID==2 & grepl("Pos", IDUniq)), unique(IDUniq)]
+variable_feat_order_sub <- variable_feat_all[variable_feat_all %in% feat_list]
+
+label_names <- sapply(variable_feat_order_sub, function(x){ return(mean_dat_plot[IDUniq==x, MetName][1])})
+
+mean_dat_plot_wide <- dcast(mean_dat_plot[IDUniq %in% variable_feat_order_sub], IDUniq~Strain+AcConc+Time, value.var = "V1")
+label_names <- sapply(mean_dat_plot_wide[,IDUniq], function(x){ return(mean_dat_plot[IDUniq==x, paste0(MetName, " (", MSI, ")")][1])})
+
+Heatmap(mean_dat_plot_wide[,20:ncol(mean_dat_plot_wide)], cluster_columns = F, col = c(brewer.pal(3, "Set1")[c(2,1)], "white")[c(1,3,2)], 
+        row_labels = label_names, row_names_gp = gpar(fontsize = 7), 
+        column_split = factor(c( 
+                                paste0("AB8n2 ", c(rep("0mM", 6), rep("1mM", 6), rep("10mM", 6))),
+                                paste0("Valencia ", c(rep("0mM", 6), rep("1mM", 6), rep("10mM", 6)))), 
+                              levels = c("AB8n2 0mM", "AB8n2 1mM",
+                                         "AB8n2 10mM", "Valencia 0mM", "Valencia 1mM", "Valencia 10mM")), 
+        cluster_column_slices = F, column_labels = c(rep(c(sort(unique(mean_dat_plot[,Time]))), 6)), 
+        column_names_rot = 0, column_names_gp = gpar(fontsize = 7), column_title_gp = gpar(fontsize = 10))
+
+pdf(paste0(outdir, "acetate_heatmap_vX_OtherStrains.pdf"), width = 8, height = 5.8)
+Heatmap(mean_dat_plot_wide[,20:ncol(mean_dat_plot_wide)], cluster_columns = F, col = c(brewer.pal(3, "Set1")[c(2,1)], "white")[c(1,3,2)], 
+        row_labels = label_names, row_names_gp = gpar(fontsize = 7), 
+        column_split = factor(c( 
+                                paste0("AB8n2 ", c(rep("0mM", 6), rep("1mM", 6), rep("10mM", 6))),
+                                paste0("Valencia ", c(rep("0mM", 6), rep("1mM", 6), rep("10mM", 6)))), 
+                              levels = c("AB8n2 0mM", "AB8n2 1mM",
+                                         "AB8n2 10mM", "Valencia 0mM", "Valencia 1mM", "Valencia 10mM")), 
+        cluster_column_slices = F, column_labels = c(rep(c(sort(unique(mean_dat_plot[,Time]))), 6)), 
+        column_names_rot = 0, column_names_gp = gpar(fontsize = 7), column_title_gp = gpar(fontsize = 10))
+dev.off()
+
+```
+
+# Figure 2 - acetate SIRM experiment, intracellular data
+
+```{r fig2_sil}
+rm(list = ls())
+
+library(data.table)
+library(tidyverse)
+library(readxl)
+library(paletteer)
+library(RColorBrewer)
+library(ggpubr)
+theme_set(theme_classic2())
+
+################ Intracellular
+datadir <- "../SILAcetateTimeCourse/"
+outdir <- "figure2/"
+dir.create(outdir)
+
+sessionInfo()
+
+##### Set up
+lower_level_intra_data <- readRDS(paste0(datadir, "IntracellularExtracts/LowLevelDataAllProcessed.rds"))
+bad_feat3 <- lower_level_intra_data[AreaFrac > 1000 & NumLabeledC > 0, sum(Status == "Contaminating mass"), by = FeatID] ## 
+lower_level_intra_data[,BadFeat3:=ifelse(FeatID %in% bad_feat3[V1 > 11, FeatID], 1, 0)] ## contaminating in > 5% of 
+lower_level_intra_data <- lower_level_intra_data[BadFeat3==0]
+lower_level_intra_data <- lower_level_intra_data[is.na(AlwaysZero)]
+
+feat_wide <- dcast(lower_level_intra_data, Name+MetID+Formula+Tags.y+AnnotationMolWt+RT+NumLabeledC+TotNumC+Mode+FracLabeled+CompID+FeatID~Sample2, value.var = "AreaFrac", fill = 0)
+lower_level_data_long <- melt(feat_wide, id.vars = names(feat_wide)[1:12], variable.name = "Sample", value.name = "AreaFrac")
+lower_level_data_long[,c("Strain", "AcetateGroup", "Replicate", "TimePoint"):=tstrsplit(Sample, split = "_")]
+lower_level_data_long[,TimePoint:=case_when(
+  TimePoint=="TP4i" ~ "TP3",
+  TimePoint=="TP6i" ~ "TP5"
+)]
+lower_level_data_long[,AcetateGroup:=gsub("Ac", "", AcetateGroup)]
+# Avg and SE across replicates
+summary_tab2 <- lower_level_data_long[TimePoint == "TP5",list(mean(AreaFrac), median(AreaFrac), sd(AreaFrac)/sqrt(length(AreaFrac))), by=list(AcetateGroup, Strain, CompID, Name, Tags.y, NumLabeledC, FeatID, AnnotationMolWt, Formula)]
+summary_tab2[,NumLabeledC2:=ifelse(NumLabeledC >= 9, "M+9 or more", paste0("M+", NumLabeledC))]
+
+
+# Tot signal from labeled vs unlabeled
+tot_labeled_unlabeled <- summary_tab2[,sum(V1), by=list(AcetateGroup, Strain, CompID, Name, Tags.y, NumLabeledC==0)]
+summary_tab <- dcast(tot_labeled_unlabeled, AcetateGroup+Strain+CompID+Name+Tags.y~NumLabeledC, value.var = "V1")
+setnames(summary_tab, c("TRUE", "FALSE"), c("Unlabeled", "Labeled"))
+summary_tab[,sum(Labeled > 1000), by=CompID]
+summary_tab[is.na(Labeled), Labeled:=0]
+summary_tab[is.na(Unlabeled), Unlabeled:=0]
+unlabeled_comps <- summary_tab[Labeled < 1000 & Unlabeled > 10000 & AcetateGroup %in% c("1L", "10L") & Strain != "c", unique(CompID)]
+unlabeled_comps2 <- summary_tab[Unlabeled > 2*Labeled & AcetateGroup %in% c("1L", "10L") & Strain != "c" , unique(CompID)]
+ctrl_levels <- summary_tab[Strain == "c", list(mean(Labeled), mean(Unlabeled)), by=list(CompID, AcetateGroup)]
+setnames(ctrl_levels, c("V1", "V2"), c("ctrlLabeled", "ctrlUnlabeled"))
+summary_tab <- merge(summary_tab, ctrl_levels, by = c("CompID", "AcetateGroup"), all.x = T)
+
+unlabeled_comps3 <- summary_tab[Labeled < 1000 & Unlabeled > 10000 & AcetateGroup %in% c("1L", "10L") & Strain != "c" & (Labeled+Unlabeled)/(ctrlLabeled+ctrlUnlabeled) > 1.3, unique(CompID)]
+
+
+#### Define compounds to plot
+top_comps2 <- summary_tab[Strain == "2243" & AcetateGroup %in% c("1L", "10L") & 
+                            Labeled/(Labeled+Unlabeled) > 0.15 & Labeled > 10000, unique(CompID)]
+
+bad_comps <- summary_tab[Strain != "c" & !AcetateGroup %in% c("1L", "10L") & Labeled/(Labeled+Unlabeled) > 0.5 , unique(CompID)]
+top_comps2 <- top_comps2[!top_comps2 %in% bad_comps]
+
+#What labeled comps are added by other species?
+top_comps2_otherspec <- summary_tab[Strain %in% c("AB8n2", "Valencia") & AcetateGroup %in% c("1L", "10L") & Labeled/(Labeled+Unlabeled) > 0.15 & Labeled > 10000, unique(CompID)]
+top_comps2_otherspec <- top_comps2_otherspec[!top_comps2_otherspec %in% bad_comps]
+length(top_comps2_otherspec[!top_comps2_otherspec %in% top_comps2])
+
+top_comps_ab8 <- summary_tab[Strain == "AB8n2" & AcetateGroup %in% c("1L", "10L") & 
+                            Labeled/(Labeled+Unlabeled) > 0.15 & Labeled > 10000, unique(CompID)]
+
+top_comps_ab8 <- top_comps_ab8[!top_comps_ab8 %in% bad_comps]
+
+top_comps_val <- summary_tab[Strain == "Valencia" & AcetateGroup %in% c("1L", "10L") & 
+                               Labeled/(Labeled+Unlabeled) > 0.15 & Labeled > 10000, unique(CompID)]
+
+top_comps_val <- top_comps_val[!top_comps_val %in% bad_comps]
+
+
+top_data_intra <- summary_tab2[CompID %in% top_comps2 & AcetateGroup %in% c("1L", "10L")]
+top_data_intra[,Class:=case_when(
+  grepl("NAD", CompID) ~ "Vitamins and cofactors",
+  grepl("UDP", CompID) ~ "Other",
+  grepl("Thymidine", CompID) ~ "Nucleic acids",
+  grepl("Acetyl", CompID) ~ "Other",
+  grepl("Glucose", CompID) ~ "Carbohydrates",
+  grepl("Orotic", CompID) ~ "Nucleic acids",
+  grepl("Gluta", CompID) ~ "Peptides and amino acids",
+  grepl("Alanine", CompID) ~ "Peptides and amino acids"
+)]
+
+top_data_intra[,Name2:=gsub("^[A-Za-z]+_", "", CompID)]
+comp_order <- unique(top_data_intra[,list(Name2, Class)])[order(Class), Name2]
+
+color_scale2 <- c("gray", brewer.pal(9, "YlGnBu"))
+names(color_scale2) <- top_data_intra[Strain %in% c("c", "2243") & !(grepl("N-Acetyl", CompID)|grepl("Acetylarg", CompID)|grepl("Pos_UDP-N-acetyl", CompID)),sort(unique(NumLabeledC2))]
+
+intracellular_plot5 <- ggplot(top_data_intra[Strain %in% c("2243") & !grepl("known", CompID) & !(grepl("N-Acetyl", CompID)|grepl("Acetylarg", CompID)|grepl("Pos_UDP-N-acetyl", CompID)) ], 
+                              aes(x = factor(AcetateGroup, levels = c("1L", "10L")), y = V1, fill = NumLabeledC2)) + 
+  geom_bar(stat = "identity", position = "fill", color = "black") + facet_wrap(factor(Name2, levels = comp_order)~., ncol = 9) + 
+  theme_classic2() + theme(strip.text = element_text(angle =0, size = 9, hjust = 0, face = "bold"), axis.text = element_text(size = 7), strip.background = element_blank(), legend.position = "bottom")+ 
+  scale_fill_manual(values = color_scale2, guide = guide_legend(), name = "")+ scale_x_discrete(labels = c("1mM", "10mM"), name = "") +
+  ylab("Share of Peak Area")
+
+ggsave(intracellular_plot5, file = paste0(outdir, "intracellular_sil_2243_ID_summary_2rows.pdf"), width = 8.5, height = 2.6)
+
+intracellular_plot5
+
+summary_tab2[CompID %in% top_comps2 & Strain %in% c("c", "2243") & grepl("known", CompID) & AcetateGroup %in% c("1L", "10L") , length(unique(CompID))]
+
+###### What frac of UDP is labeled?             
+summary_tab[grepl("UDP", CompID) & Strain == "2243" & AcetateGroup %in% c("1L", "10L"), mean(Labeled/(Unlabeled+Labeled)), by = AcetateGroup]
+
+### Combined AB8, Val, 2243 plot
+combined_dat <- summary_tab2[AcetateGroup %in% c("1L", "10L")& Strain != "c" & CompID %in% c(top_comps2, top_comps_ab8, top_comps_val) & !(grepl("N-Acetyl", CompID)|grepl("Acetylarg", CompID)|grepl("Pos_UDP-N-acetyl", CompID)) ]
+combined_dat[,CompLab:=gsub("Labeled ", "", CompID)]
+combined_dat[grepl("Alanine", CompID), CompLab:="Pos_Alanine_89.04768_90.0549_8.107"]
+combined_dat[,CompLab:=ifelse(grepl("Neg", CompID), paste0(gsub("Neg_", "", CompLab), "_Neg"), 
+                              paste0(gsub("Pos_", "", CompLab), "_Pos"))]
+combined_dat <- combined_dat[!CompLab %in% c("Unknown_129.0424_8.79_Neg" , "Unknown_129.04259_130.0498_8.662_Pos")] ## Redundant
+intracellular_3strain <- ggplot(combined_dat, 
+                                aes(x = factor(AcetateGroup, levels = c("1L", "10L")), y = V1, fill = NumLabeledC2)) + 
+  geom_bar(stat = "identity", position = "fill", color = "black") + facet_grid(Strain~CompLab, switch = "y") + 
+  theme_classic2() + theme(strip.placement = "outside", strip.text.y = element_text(angle = 0, size = 9, hjust = 0, face = "bold"), 
+                           strip.text.x = element_text(size = 7), axis.text = element_text(size = 7), strip.background = element_blank(), 
+                           legend.position = "bottom") + 
+  scale_fill_manual(values = color_scale2, guide = guide_legend(), name = "")+ scale_x_discrete(labels = c("1mM", "10mM"), name = "") +
+  ylab("Share of Peak Area")
+ggsave(intracellular_3strain, file = paste0(outdir, "intracellular_sil_3strains.pdf"), width = 9, height = 4.5)
+
+combined_dat[,MSI:=gsub(";", "", gsub("Labeled", "", Tags.y))]
+combined_dat[MSI == "NA", MSI:=""]
+intracellular_3strain_id <- ggplot(combined_dat[!grepl("known", CompLab)], 
+                                aes(x = factor(AcetateGroup, levels = c("1L", "10L")), y = V1, fill = NumLabeledC2)) + 
+  geom_bar(stat = "identity", position = "fill", color = "black") + facet_grid(Strain~paste0(Name, " (", MSI, ")"), switch = "y") + 
+  theme_classic2() + theme(strip.placement = "outside", strip.text.y = element_text(angle = 0, size = 9, hjust = 0, face = "bold"), 
+                           strip.text.x = element_text(size = 7), axis.text = element_text(size = 7), strip.background = element_blank(), 
+                           legend.position = "bottom") + 
+  scale_fill_manual(values = color_scale2, guide = guide_legend(), name = "")+ scale_x_discrete(labels = c("1mM", "10mM"), name = "") +
+  ylab("Share of Peak Area")
+
+ggsave(intracellular_3strain_id, file = paste0(outdir, "intracellular_sil_3strains_id.pdf"), width = 7, height = 4)
+
+intracellular_3strain_id
+
+intracellular_3strain_unknown <- ggplot(combined_dat[grepl("known", CompLab)], 
+                                   aes(x = factor(AcetateGroup, levels = c("1L", "10L")), y = V1, fill = NumLabeledC2)) + 
+  geom_bar(stat = "identity", position = "fill", color = "black") + facet_grid(Strain~CompLab, switch = "y") + 
+  theme_classic2() + theme(strip.placement = "outside", strip.text.y = element_text(angle = 0, size = 9, hjust = 0, face = "bold"), 
+                           strip.text.x = element_text(size = 7), axis.text = element_text(size = 7), strip.background = element_blank(), 
+                           legend.position = "bottom") + 
+  scale_fill_manual(values = color_scale2, guide = guide_legend(), name = "")+ scale_x_discrete(labels = c("1mM", "10mM"), name = "") +
+  ylab("Share of Peak Area")
+
+ggsave(intracellular_3strain_unknown, file = paste0(outdir, "intracellular_sil_3strains_unknown.pdf"), width = 7, height = 4)
+
+intracellular_3strain_unknown
+
+#### Supp table
+tab_save <- summary_tab2[(CompID %in% c(top_comps2, top_comps_val, top_comps_ab8)) & Strain != "c" & AcetateGroup %in% c("1L", "10L")][V1 != 0]
+setnames(tab_save, c("V1", "V3"), c("MeanPeakArea", "SEPeakArea"))
+tab_save[,MID:=MeanPeakArea/sum(MeanPeakArea), by = list(CompID, Strain, AcetateGroup)]
+tab_save[,Strain:=case_when(
+  Strain == "AB8" ~ "AB8n2",
+  Strain == "Val" ~ "Valencia",
+  TRUE ~ Strain
+)]
+good_isos <- tab_save[,sum(MeanPeakArea), by=list(CompID, NumLabeledC)][V1 > 50000]
+
+tab_save <- dcast(tab_save[paste0(CompID, NumLabeledC) %in% good_isos[,paste0(CompID, NumLabeledC)]], CompID+Tags.y+Formula+Strain ~ paste0("M+", NumLabeledC) + AcetateGroup, value.var = c("MeanPeakArea", "SEPeakArea", "MID"))
+names(tab_save)[grepl("MeanPeakArea", names(tab_save))] <- paste0(gsub("MeanPeakArea_", "", names(tab_save)[grepl("MeanPeakArea", names(tab_save))]), "_Mean Peak Area")
+names(tab_save)[grepl("SEPeakArea", names(tab_save))] <- paste0(gsub("SEPeakArea_", "", names(tab_save)[grepl("SEPeakArea", names(tab_save))]), "_SE Peak Area")
+names(tab_save)[grepl("MID", names(tab_save))] <- paste0(gsub("MID_", "", names(tab_save)[grepl("MID", names(tab_save))]), "_MID")
+tab_save[,MolWt:=sapply(CompID, function(x){
+  foo <- strsplit(x, split = "_")[[1]]
+  return(foo[3])
+})]
+tab_save[,RT:=sapply(CompID, function(x){
+  foo <- strsplit(x, split = "_")[[1]]
+  return(foo[length(foo)])
+})]
+tab_save[grepl("Alanine", CompID), MolWt:="89.04768"]
+tab_save[,CompID:=sapply(CompID, function(x){
+  foo <- strsplit(x, split = "_")[[1]]
+  return(paste0(foo[2], "_", foo[1]))
+})]
+tab_save <- tab_save[,c("Strain", "CompID", "Tags.y", "MolWt", "Formula", "RT", sort(names(tab_save)[7:ncol(tab_save)])), with=F]
+fwrite(tab_save[order(Strain, CompID)], file = paste0(outdir, "intracellular_ac_labeling_summary.tsv"), sep = "\t")
+
+
+rm(list = ls())
+```
+
+# Figure 2/Figure S4 - acetate SIRM experiment, intracellular data
+
+```{r fig2_sil_ex}
+########## Extracellular
+datadir <- "../SILAcetateTimeCourse/"
+datadir2 <- "../"
+outdir <- "figure2/"
+
+low_level_data <- readRDS(paste0(datadir2, "LowLevelDataAllProcessedFixedAcetate.rds"))
+top_data <- readRDS(paste0(datadir2, "SILprocessedTopLevelDataReplicatesFixedAcetate.rds"))
+top_data_mean <- readRDS(paste0(datadir2, "SILprocessedTopLevelDataMeansFixedAcetate.rds"))
+
+low_level_data[,Strain2:=factor(Strain, levels = c("c", "2243", "AB8", "Val"))]
+levels(low_level_data$Strain2) <- c("Ctrl", "2243", "AB8n2", "Valencia")
+
+bad_feat2 <- low_level_data[!grepl("L", AcetateGroup) & AreaFrac > 1e6 & NumLabeledC > 0, list(CompID, ExLabel, NumLabeledC, FeatID)][,length(NumLabeledC), by=list(CompID, ExLabel, FeatID)][V1 > 1]
+bad_feats <- low_level_data[BadFeat==1,list(CompID, ExLabel, NumLabeledC)][,length(NumLabeledC), by=list(CompID, ExLabel)][V1 > 1]
+bad_feats[,BadFeatAll:=1]
+
+od_data = data.table(read_xlsx(paste0(datadir, "ODdata.xlsx")))
+od_data[,TP9_64:=round(as.numeric(TP9_64), digits = 3)] #fix weirdness
+od_data = melt(od_data, id.var = c("Strain", "AcConc", "Replicate"), variable.name = "TimePoint")
+#od_data[,Time:=as.numeric(gsub("TP[0-9]_", "", TimePoint))]
+setnames(od_data, "AcConc", "AcetateGroup")
+od_data[,AcConc:=gsub("L", "", AcetateGroup)]
+od_data[,Labeled:=ifelse(grepl("L", AcetateGroup), "SIL", "Unlabeled")]
+setnames(od_data, "Strain", "StrainFull")
+od_data[,Strain:=ifelse(StrainFull=="Valencia", "Val", StrainFull)]
+od_data[,Strain:=ifelse(Strain=="AB8n2", "AB8", Strain)]
+od_data[,TimePoint:=gsub("_[0-9.]+$", "", TimePoint)]
+od_data[,TimePoint:=paste0("TP", as.numeric(gsub("TP", "", TimePoint))-1)]
+od_data[,Replicate:=as.character(Replicate)]
+setnames(od_data, "value", "OD600")
+
+
+most_signal <- low_level_data[TimePoint=="TP8" & Strain != "c",sum(AreaFrac*NumLabeledC), 
+                              by = list(Strain, AcetateGroup, TimePoint, Time, CompID)][,max(V1), by=CompID][order(V1, decreasing = T)][1:7, CompID]
+
+color_scale = c("gray", paletteer::paletteer_dynamic("cartography::turquoise.pal", 16))
+names(color_scale) = c(seq(0, 15), 17)
+color_scale2 <- c("gray", brewer.pal(9, "YlGnBu"))
+low_level_data[,NumLabeledC2:=ifelse(NumLabeledC >= 9, "M+9 or more", paste0("M+", NumLabeledC))]
+# Avg and SE across replicates
+
+summary_tab2ex <- low_level_data[Sample2 != "c_10L_TP8_1",list(mean(AreaFrac), sd(AreaFrac)/sqrt(length(AreaFrac))), by=list(AcetateGroup, Strain, CompID, Name, ExLabel, FeatID, TimePoint, Time, MSI, MolWt, Formula)]
+summary_tab2ex[,NumLabeledC:=as.numeric(gsub("ExRate", "", ExLabel))]
+tot_labeled_unlabeled_ex <- summary_tab2ex[TimePoint=="TP8",sum(V1), by=list(AcetateGroup, Strain, CompID, Name, ExLabel=="ExRate0")]
+summary_tab_ex <- dcast(tot_labeled_unlabeled_ex, AcetateGroup+Strain+CompID+Name~ExLabel, value.var = "V1")
+setnames(summary_tab_ex, c("TRUE", "FALSE"), c("Unlabeled", "Labeled"))
+
+#### Define top comps
+top_comps2ex <- summary_tab_ex[Strain == "2243" & AcetateGroup %in% c( "10L") & Labeled/(Labeled+Unlabeled) > 0.5 & 
+                                 Labeled > 50000, unique(CompID)]
+
+bad_comps_ex <- summary_tab_ex[Strain != "c" & !AcetateGroup %in% c("1L", "10L") & Labeled/(Labeled+Unlabeled) > 0.5 & Labeled > 1e5, unique(CompID)]
+top_comps2ex <- top_comps2ex[!top_comps2ex %in% bad_comps_ex]
+
+top_comps2ex_otherspec <- summary_tab_ex[Strain %in% c("AB8", "Val") & AcetateGroup %in% c( "10L") & Labeled/(Labeled+Unlabeled) > 0.5 & Labeled > 50000, unique(CompID)]
+top_comps2ex_otherspec <- top_comps2ex_otherspec[!top_comps2ex_otherspec %in% bad_comps_ex]
+length(top_comps2ex_otherspec[!top_comps2ex_otherspec %in% top_comps2ex])
+
+# Get rid of duplicates
+top_comps2ex_sub <- top_comps2ex[!top_comps2ex %in% c("ACETYL ARGININE_Neg", "D-(-)-Glutamine_Neg", 
+                                                      "L-Glutamic acid_Neg", "N-Acetylornithine_Neg",
+                                                      "N-Acetyltryptophan_Neg", "Pantothenic acid_Neg")]
+
+color_scale2 <- c("gray", brewer.pal(9, "YlGnBu"))
+summary_tab2ex[,NumLabeledC2:=ifelse(NumLabeledC >= 9, "M+9 or more", paste0("M+", NumLabeledC))]
+names(color_scale2) <- summary_tab2ex[,sort(unique(NumLabeledC2))]
+color_scale_sub <- color_scale2[names(color_scale2) %in% summary_tab2ex[CompID %in% top_comps2ex & Strain == 2243 & AcetateGroup %in% c("10L") & !grepl("myristic", CompID) & !grepl("ASCORBIC", CompID) & V1 != 0, NumLabeledC2]]
+
+summary_tab2ex[CompID=="Acetylarginine_Pos", CompID:="N-Acetyl-arginine_Pos"]
+
+dup_comps <- c("D-(-)-Glutamine_Neg", "N-Acetylornithine_Neg", "L-Glutamic acid_Neg", "N-Acetyltryptophan_Neg", "Pantothenic acid_Neg")
+extracellular_plot5 <- ggplot(summary_tab2ex[!CompID %in% dup_comps & (CompID %in% top_comps2ex_sub|CompID %in% top_comps2ex_otherspec)& Strain != "c" & AcetateGroup %in% c("10L") & !grepl("ASCORBIC", CompID) & V1 != 0], 
+                              aes(x = factor(paste0(Strain, " ", Time)), y = V1, fill = NumLabeledC2)) + 
+  geom_vline(xintercept = 9.5, size = 0.3, linetype = 2) + geom_vline(xintercept = 18.5, size = 0.3, linetype = 2) +
+  geom_bar(stat = "identity", position = "stack", color = "black", size = 0.1) + facet_wrap(.~paste0(Name, " (", MSI, ")"), scales = "free_y", ncol = 6) + 
+  theme_classic2() + theme(axis.ticks.x = element_blank(), strip.text = element_text(angle =0, size = 9, hjust = 0), 
+                           axis.text.y = element_text(size = 5), axis.text.x = element_text(size = 8, face = "bold"), 
+                           strip.background= element_blank(), legend.position = "bottom")+ 
+  scale_fill_manual(values = color_scale_sub, guide = guide_legend(), name = "")+ scale_y_continuous(labels = scales::scientific, name = "Mean Peak Area") +
+  xlab("Time point") + 
+  scale_x_discrete(labels = c("", "", "","", "2243", rep("", 8), "AB8n2", rep("", 8), "Valencia", rep("", 4))) 
+
+ggsave(extracellular_plot5, file = paste0(outdir, "extracellular_SIL_summaryIDcomps_allStrains.pdf"), width= 8.5, height = 5)
+
+extracellular_plot5 
+
+##### Extracellular compound summary (supp table)
+tab_save <- summary_tab2ex[(CompID %in% top_comps2ex_sub|CompID %in% top_comps2ex_otherspec) & Strain != "c" & TimePoint == "TP8" & AcetateGroup %in% c("1L", "10L")][V1 != 0]
+setnames(tab_save, c("V1", "V2"), c("MeanPeakArea", "SEPeakArea"))
+tab_save[,MID:=MeanPeakArea/sum(MeanPeakArea), by = list(CompID, Strain, AcetateGroup)]
+tab_save[,Strain:=case_when(
+  Strain == "AB8" ~ "AB8n2",
+  Strain == "Val" ~ "Valencia",
+  TRUE ~ Strain
+)]
+good_isos <- tab_save[,sum(MeanPeakArea), by=list(CompID, NumLabeledC)][V1 > 50000]
+
+tab_save <- dcast(tab_save[paste0(CompID, NumLabeledC) %in% good_isos[,paste0(CompID, NumLabeledC)]], CompID+MolWt+Formula+MSI+Strain ~ paste0("M+", NumLabeledC) + AcetateGroup, value.var = c("MeanPeakArea", "SEPeakArea", "MID"))
+names(tab_save)[grepl("MeanPeakArea", names(tab_save))] <- paste0(gsub("MeanPeakArea_", "", names(tab_save)[grepl("MeanPeakArea", names(tab_save))]), "_Mean Peak Area")
+names(tab_save)[grepl("SEPeakArea", names(tab_save))] <- paste0(gsub("SEPeakArea_", "", names(tab_save)[grepl("SEPeakArea", names(tab_save))]), "_SE Peak Area")
+names(tab_save)[grepl("MID", names(tab_save))] <- paste0(gsub("MID_", "", names(tab_save)[grepl("MID", names(tab_save))]), "_MID")
+tab_save <- tab_save[,c("Strain", "CompID", "MolWt", "Formula", "MSI", sort(names(tab_save)[4:ncol(tab_save)])), with=F]
+fwrite(tab_save[order(Strain, CompID)], file = paste0(outdir, "extracellular_ac_labeling_summary.tsv"), sep = "\t")
+
+
+###### Count of labeled compounds
+
+low_level_data[,TubeSample2:=paste0(Strain, "_", AcetateGroup2, "_", Replicate)]
+low_level_data[,BadCtrl:=ifelse(TubeSample2 %in% c("c_10L_1", "c_1L_3"), 1, 0)]
+bad_feat3 <- low_level_data[AreaFrac > 0 & NumLabeledC > 0, sum(Status == "Contaminating mass"), by = FeatID] ## 
+low_level_data[,BadFeat3:=ifelse(FeatID %in% bad_feat3[V1 > 16, FeatID], 1, 0)] ## contaminating in 
+## Remove labeled features present at high abund in first time point, not relevant
+bad_feat4 <- low_level_data[NumLabeledC > 0 & (Time < 15|(Strain == "c" & Time < 30)) & AreaFrac > 5e5, unique(FeatID)]
+#low_level_data <- low_level_data[!FeatID %in% bad_feat4]
+
+labeled_compounds <- low_level_data[BadFeat==0 & BadFeat3 == 0 & BadCtrl == 0 & !FeatID %in% bad_feat4 & NumLabeledC > 0 & !Status %in% c("Contaminating mass", "Low pattern fit"), sum(AreaFrac), by = list(Name, CompID, Strain, AcetateGroup2, TubeSample,TimePoint, Sample, MSI, Formula, Replicate, Time, TotNumC)]
+
+labeled_compounds_count <- labeled_compounds[,length(unique(CompID[V1 > 100000])), by = list(Strain, AcetateGroup2,TimePoint, Time, Replicate)]
+
+
+ac_group_scale <- brewer.pal(5, "Paired")[c(5, 1:4)]
+names(ac_group_scale) <- c("0", "1", "1L", "10", "10L")
+
+labeled_compounds_comp_mean <- labeled_compounds_count[,list(mean(V1), sd(V1)/sqrt(length(V1))), by = list(Strain, AcetateGroup2, TimePoint, Time)]
+labeled_compound_plot <- ggplot(labeled_compounds_comp_mean[Strain %in% c(2243, "c")], aes(x = Time, y = V1, color = AcetateGroup2)) + facet_wrap(~ifelse(Strain == "c", "Sterile ctrls", "E. lenta DSM 2243")) + geom_line() + geom_errorbar(width = 0, aes(ymin = V1-V2, ymax = V1+V2)) + geom_point() + scale_color_manual(values = ac_group_scale, labels = c("0 Ac", "1mM Ac", "1mM labeled Ac", "10mM Ac", "10mM labeled Ac"), name = "") + theme(legend.position = "right", strip.text = element_text(face = "bold"), strip.background = element_blank()) + xlab("Time (hr)") + ylab("Number of labeled\ncompounds detected\nby LC-MS/MS")
+
+labeled_compound_plot
+
+ggsave(labeled_compound_plot, file = paste0(outdir, "sil_2243_labeled_comp_plot.pdf"), width = 5.5, height = 2.35)
+
+
+############### Growth plot
+od_data = data.table(read_xlsx(paste0(datadir, "ODdata.xlsx")))
+od_data[,TP9_64:=round(as.numeric(TP9_64), digits = 3)] #fix weirdness
+od_data = melt(od_data, id.var = c("Strain", "AcConc", "Replicate"), variable.name = "TimePoint")
+setnames(od_data, "AcConc", "AcetateGroup")
+od_data[,AcConc:=gsub("L", "", AcetateGroup)]
+od_data[,Labeled:=ifelse(grepl("L", AcetateGroup), "SIL", "Unlabeled")]
+setnames(od_data, "Strain", "StrainFull")
+od_data[,Strain:=ifelse(StrainFull=="Valencia", "Val", StrainFull)]
+od_data[,Strain:=ifelse(Strain=="AB8n2", "AB8", Strain)]
+od_data[,TimePoint:=gsub("_[0-9.]+$", "", TimePoint)]
+od_data[,TimePoint:=paste0("TP", as.numeric(gsub("TP", "", TimePoint))-1)]
+od_data[,Replicate:=as.character(Replicate)]
+setnames(od_data, "value", "OD600")
+time_pt_tab <- data.table(TimePoint=paste0("TP", 0:8), Time = c(0, 15, 18.5, 23,28.5, 39, 43, 47.5, 64))
+od_data <- merge(od_data, time_pt_tab, by = "TimePoint", all.x = T)
+mean_od_data <- od_data[,list(mean(OD600, na.rm = T), sd(OD600, na.rm = T)/sqrt(length(OD600[!is.na(OD600)]))), by=list(Time, TimePoint, Strain, StrainFull, AcConc, AcetateGroup)]
+
+od_plot <- ggplot(mean_od_data, aes(x = Time, y = V1, color = AcetateGroup)) + geom_line() + geom_point() + 
+  facet_wrap(~StrainFull) +
+  geom_errorbar(aes(ymin = V1-V2, ymax = V1+V2, width = 0)) + ylab("Cell density (OD600)") + xlab("Time (hr)") +
+  theme(legend.position = "right") + scale_color_manual(values = ac_group_scale, labels = c("0 acetate", "1mM acetate", "1mM labeled acetate", "10mM acetate", "10mM labeled acetate"), name = "")
+
+ggsave(od_plot, file = paste0(outdir, "sil_growth.pdf"), width = 7.5, height = 2.4)
+
+od_plot
+
+
+```
+
+# Figure S3 - Targeted acetate quantification
+
+```{r targeted}
+###### Targeted acetate Figure S5
+rm(list = ls())
+library(data.table)
+library(tidyverse)
+library(readxl)
+library(ggrepel)
+library(ggpubr)
+library(emmeans)
+library(RColorBrewer)
+datadir <- "processedDatasets/"
+outdir <- "figure2/"
+sessionInfo()
+
+met_data <- fread(paste0(datadir, "targeted_met_data.csv"))
+met_data[,Accuracy:=as.numeric(Accuracy)]
+met_data[S_N=="∞", S_N:="Inf"]
+met_data[,S_N:=as.numeric(S_N)]
+met_data[,mean(S_N, na.rm = T), by=Compound]
+
+## Questions
+# How to interpret S_N
+met_data[!is.na(Strain) & S_N < 10, table(Compound)]
+met_data[!is.na(Strain),length(unique(Sample))]
+met_data[,LLOQ:=as.numeric(LLOQ)]
+met_data[,ULOQ:=as.numeric(ULOQ)]
+met_data[,BelowLLOQ:=ifelse(mM < LLOQ, 1, 0)]
+met_data[,AboveULOQ:=ifelse(mM > ULOQ, 1, 0)]
+met_data[,BadS_N:=ifelse(S_N < 10, 1, 0)]
+met_data[BelowLLOQ==1 & S_N > 1e4]
+met_data[,PresentButUnreliable:=ifelse(BelowLLOQ==1|BadS_N, 1, 0)]
+
+met_data[TimePoint=="TP4", Time:=28.5]
+met_data[TimePoint=="TP7", Time:=47.5]
+met_data[TimePoint=="TP8", Time:=64]
+met_data[,Time:=as.numeric(Time)]
+met_data[,Strain:=factor(Strain, levels = c("c", "2243", "AB8", "Val"))]
+levels(met_data$Strain) = c("Ctrl", "2243", "AB8n2", "Valencia")
+
+met_data[,Acetate2:=factor(AcetateConc)]
+levels(met_data$Acetate2) <- c("0mM Ac", "1mM Ac", "10mM Ac")
+acetate_plot <- ggplot(met_data[Compound == "Acetate" & !is.na(Time)], aes(x = Time, y = mM-1.05, color = Strain)) + geom_point() + geom_line(aes(group = paste0(Strain, Replicate))) + facet_wrap(~HypAcetateConc, nrow = 1, scales = "free_y") + cowplot::theme_cowplot() + ylab("Concentration (mM)") + scale_color_manual(values = c("gray", brewer.pal(3, "Set1"))) + xlab("Time (hr)")
+
+### Stats
+acetate_data_sub <- met_data[Compound == "Acetate" & !is.na(Time)]
+acetate_data_sub[,mMCorrected:=mM - 1.05]
+
+acetate_data_sub[,Condition:=paste0(as.character(Acetate2), "_", Time)]
+
+#### Separate by acetate group since the SE is so different between them
+mod0ac <- lm(mMCorrected ~ factor(Time)*Strain, data = acetate_data_sub[Acetate2 == "0mM Ac"])
+diffs0ac <- emmeans(mod0ac, specs = ~ Strain | Time, contr = "dunnett")$contrasts %>% as.data.frame %>% data.table()
+diffs0ac[,Acetate2:="0mM Ac"]
+
+mod1ac <- lm(mMCorrected ~ factor(Time)*Strain, data = acetate_data_sub[Acetate2 == "1mM Ac"])
+diffs1ac <- emmeans(mod1ac, specs = ~ Strain | Time, contr = "dunnett")$contrasts %>% as.data.frame %>% data.table()
+diffs1ac[,Acetate2:="1mM Ac"]
+
+mod10ac <- lm(mMCorrected ~ factor(Time)*Strain, data = acetate_data_sub[Acetate2 == "10mM Ac"])
+diffs10ac <- emmeans(mod10ac, specs = ~ Strain | Time, contr = "dunnett")$contrasts %>% as.data.frame %>% data.table()
+diffs10ac[,Acetate2:="10mM Ac"]
+diffs_all <- rbind(diffs0ac, diffs1ac, diffs10ac)
+diffs_all[,Strain:=gsub(" - Ctrl", "", contrast)]
+diffs_all[,Signif:=case_when(
+  p.value < 0.1 & p.value > 0.05 ~ ".",
+  p.value < 0.05 & p.value > 0.01 ~ "*",
+  p.value < 0.01 & p.value > 0.001 ~ "**", 
+  p.value < 0.001 ~ "***", 
+  TRUE ~ ""
+)]
+diffs_all[,ylev:=case_when(
+  Acetate2 == "0mM Ac" ~ 0.5,
+  Acetate2 == "1mM Ac" ~ 1.85,
+  Acetate2 == "10mM Ac" ~ 18.5
+)]
+diffs_all[,ylev:=case_when(
+  Strain == "2243" & Acetate2 == "1mM Ac" ~ ylev + 0.1,
+  Strain == "Valencia" & Acetate2 == "1mM Ac" ~ ylev-0.1,
+  TRUE ~ ylev
+)]
+diffs_all[,Acetate2:=factor(Acetate2, levels = c("0mM Ac", "1mM Ac", "10mM Ac"))]
+ac_loq <- met_data[Compound=="Acetate", unique(LLOQ)]
+
+## Plot data
+acetate_means <- met_data[Compound == "Acetate" & !is.na(Time), list(mean(mM-1.05), sd(mM-1.05)/sqrt(length(mM))), by = list(Time, Strain, Acetate2)]
+acetate_plot <- ggplot(acetate_means, aes(x = Time, y = V1, color = Strain)) + 
+  geom_hline(yintercept = ac_loq, linetype = 2) +
+  geom_line(aes(group = Strain)) + geom_point() + 
+  geom_errorbar(aes(ymin = V1-V2, ymax = V1+V2), width = 0)+ 
+  geom_text(data = diffs_all, aes(y = ylev, x = Time, label = Signif)) + scale_y_continuous(limits=c(0, NA), expand = expansion(mult = c(0, 0.045))) + 
+  theme(strip.background = element_blank()) + facet_wrap(~Acetate2, nrow = 1, scales = "free_y") + 
+  ylab("Concentration (mM)") + scale_x_continuous(expand = expansion(add = c(4, 4))) +
+  scale_color_manual(values = c("gray", brewer.pal(3, "Set1"))) + xlab("Time (hr)") 
+
+ggsave(acetate_plot, file = paste0(outdir, "targeted_acetate_quant.pdf"), width = 6, height = 2)
+
+acetate_plot
+
+#### WE will separate by acetate group since the SE is so different between them
+arg_data_sub <- met_data[Compound == "Arg" & !is.na(Time)]
+mod0ac <- lm(mM ~ factor(Time)*Strain, data = arg_data_sub[Acetate2 == "0mM Ac"])
+diffs0ac <- emmeans(mod0ac, specs = ~ Strain | Time, contr = "dunnett")$contrasts %>% as.data.frame %>% data.table()
+diffs0ac[,Acetate2:="0mM Ac"]
+
+mod1ac <- lm(mM ~ factor(Time)*Strain, data = arg_data_sub[Acetate2 == "1mM Ac"])
+diffs1ac <- emmeans(mod1ac, specs = ~ Strain | Time, contr = "dunnett")$contrasts %>% as.data.frame %>% data.table()
+diffs1ac[,Acetate2:="1mM Ac"]
+
+mod10ac <- lm(mM ~ factor(Time)*Strain, data = arg_data_sub[Acetate2 == "10mM Ac"])
+diffs10ac <- emmeans(mod10ac, specs = ~ Strain | Time, contr = "dunnett")$contrasts %>% as.data.frame %>% data.table()
+diffs10ac[,Acetate2:="10mM Ac"]
+diffs_all <- rbind(diffs0ac, diffs1ac, diffs10ac)
+diffs_all[,Strain:=gsub(" - Ctrl", "", contrast)]
+diffs_all[,Signif:=case_when(
+  p.value < 0.1 & p.value > 0.05 ~ ".",
+  p.value < 0.05 & p.value > 0.01 ~ "*",
+  p.value < 0.01 & p.value > 0.001 ~ "**", 
+  p.value < 0.001 ~ "***", 
+  TRUE ~ ""
+)]
+diffs_all[,ylev:=case_when(
+  Acetate2 == "0mM Ac" ~ 72,
+  Acetate2 == "1mM Ac" ~ 72,
+  Acetate2 == "10mM Ac" ~ 72
+)]
+diffs_all[,ylev:=case_when(
+  Strain == "2243" & Acetate2 == "1mM Ac" ~ ylev + 0.1,
+  Strain == "Valencia" & Acetate2 == "1mM Ac" ~ ylev-0.1,
+  TRUE ~ ylev
+)]
+diffs_all[,Acetate2:=factor(Acetate2, levels = c("0mM Ac", "1mM Ac", "10mM Ac"))]
+arg_means <- met_data[Compound == "Arg" & !is.na(Time), list(mean(mM), sd(mM)/sqrt(length(mM))), by = list(Time, Strain, Acetate2)]
+arg_plot <- ggplot(arg_means, aes(x = Time, y = V1, color = Strain)) + geom_hline(yintercept = 0, linetype = 2) + 
+  geom_line(aes(group = Strain)) + geom_point() + 
+  geom_text(data = diffs_all, aes(y = ylev, x = Time, label = Signif)) + scale_y_continuous(limits=c(0, NA), expand = expansion(mult = c(0, 0.045))) + 
+  geom_errorbar(aes(ymin = V1-V2, ymax = V1+V2), width = 0)+ 
+  scale_y_continuous(limits=c(0, NA), expand = expansion(mult = c(0, 0.045))) + 
+  theme(strip.background = element_blank()) + facet_wrap(~Acetate2, nrow = 1) + 
+  ylab("Concentration of arginine (mM)") + scale_x_continuous(expand = expansion(add = c(4, 4))) +
+  scale_color_manual(values = c("gray", brewer.pal(3, "Set1"))) + xlab("Time (hr)") 
+
+ggsave(arg_plot, file = paste0(outdir, "targeted_arg_plot.pdf"), width = 6, height = 2)
+
+arg_plot
+
+```
+
+
+# Figure S5 - Arginine SIRM
+
+```{r fig_s5}
+rm(list = ls())
+library(data.table)
+library(tidyverse)
+library(ggpubr)
+outdir <- "figure_s6/"
+dir.create(outdir)
+theme_set(theme_classic2())
+
+sessionInfo()
+
+datadir <- "../SILArginine2022-03/"
+hilic_intra <- readRDS(paste0(datadir, "SIL_Intra_HILIC_LowLevelDataAllProcessed.rds"))
+
+labeled_comps <- hilic_intra[,sum(AreaFrac), by=list(CompID, NumLabeledC)][NumLabeledC > 0 & V1 > 1e5, unique(CompID)]
+
+frac_labeling <- hilic_intra[ArgGroup=="HR" & Strain != "c",list(sum(AreaFrac[NumLabeledC==0]), sum(AreaFrac[NumLabeledC != 0])), by=CompID]
+frac_labeling[,LabelFrac:=V2/(V2+V1)]
+
+median_dat <- hilic_intra[,list(median(AreaFrac), mean(AreaFrac), sd(AreaFrac)/sqrt(length(AreaFrac))), by = list(CompID, FeatID, Name, Formula, MSI, NumLabeledC, ArgGroup, Strain, TimePoint, Time)]
+most_abund_iso <- median_dat[ArgGroup == "HR" & Strain == "2243",list(NumLabeledC[which.max(V2)], max(V2)), by = list(CompID, Formula)]
+most_abund_iso[order(V1, decreasing = T)][1:20]
+most_abund_iso[V1 != 0 & grepl("Pos", CompID)][order(V2, decreasing = T)][1:30]
+most_abund_iso[V1 != 0 & grepl("Neg", CompID)][order(V2, decreasing = T)][1:20]
+
+median_dat[NumLabeledC > 4 & ArgGroup == "HR" & Strain == "2243" & V2 > 1e7][order(V2, decreasing = T)]
+top_labeled_comps <- frac_labeling[V2 > 1e5 & LabelFrac > 0.1, CompID]
+top_labeled_comps2<- frac_labeling[V2 > 1e7 & V1+V2 > 5e7 & LabelFrac > 0.1, CompID]
+
+
+## How many features have >5 labeled carbons? 
+unique(hilic_intra[NumLabeledC > 5 & Strain == "2243" & AreaFrac > 1e6 & ArgGroup == "HR" & !grepl("rginine", Name) & 
+                     !grepl("itrulline", Name) & !grepl("rnithine", Name) & TimePoint=="TP4",
+                   list(NumLabeledC, Name, Formula, CompID)])[,unique(CompID)]
+
+unique(hilic_intra[NumLabeledC >= 5 & Strain == "2243" & AreaFrac > 1e6 & ArgGroup == "HR"  & TimePoint=="TP4",
+                   list(NumLabeledC, Name, Formula, CompID)])[,unique(CompID)]
+
+bad_comps <- hilic_intra[NumLabeledC >= 5 & AreaFrac > 1e6& ArgGroup != "HR" & value > 5,
+                         list(NumLabeledC, Name, Formula, CompID)][,unique(CompID)]
+
+unique(hilic_intra[NumLabeledC >= 5 & Strain == "2243" & AreaFrac > 1e6 & ArgGroup == "HR"  & TimePoint=="TP4" & !CompID %in% bad_comps,
+                   list(NumLabeledC, Name, Formula, CompID)])[,unique(CompID)]
+hilic_intra[!CompID %in% bad_comps, length(unique(CompID))]
+
+feat_data_wide <- dcast(median_dat[ArgGroup == "HR"], FeatID+CompID+Formula+Name+NumLabeledC~Strain+TimePoint, value.var = "V1")
+max_vals <- hilic_intra[,.(MaxVal = max(AreaFrac)), by = FeatID]
+feat_data_wide <- merge(feat_data_wide, max_vals, by = "FeatID", all.x = T)
+
+new_color_scale <- c("gray", brewer.pal(9, "YlGnBu"))
+median_dat[,NumLabeledC_v2:=ifelse(NumLabeledC >= 9, "9 or more", NumLabeledC)]
+
+tot_vals <- feat_data_wide[,list(sum(`2243_TP4`), sum(c_TP3)), by = CompID]
+tot_vals[,log2FC:=log2((V2+1000)/(V1+1000))]
+
+comp_order <- median_dat[V1 > 1e5 & Strain == "2243", list(max(NumLabeledC), V1[which.max(NumLabeledC)]), by = CompID][order(V1, V2, decreasing = T), CompID]
+
+top_id_comps <- top_labeled_comps[!grepl("known", top_labeled_comps)]
+top_id_comps <- sort(top_id_comps)[c(1:4,6, 7, 8, 9, 10, 11, 13, 14, 15:18)]
+median_dat[,NumLabeledC2:=paste0("M+", NumLabeledC_v2)]
+
+comp_order2 <- median_dat[V1 > 1e5 & Strain == "2243" & CompID %in% top_id_comps, list(max(NumLabeledC), V1[which.max(NumLabeledC)]), by = Name][order(V1, V2, decreasing = T), Name]
+
+hilic_intra_labels <- ggplot(median_dat[ArgGroup == "HR" & Strain == "2243" & CompID %in% top_id_comps & !grepl("known", Name)], 
+                             aes(x = factor(Time), y = V2, fill = factor(NumLabeledC2))) + geom_bar(stat = "identity", position = "fill", color = "black") + facet_wrap(~factor(Name, levels = comp_order2), ncol = 4, scales = "free_y") + scale_fill_manual(values = new_color_scale, name = "Labeling Pattern") + theme(axis.text = element_text(size = 9), strip.text = element_text(size = 9)) + xlab("Time (hr)") + ylab("Share of Peak Area") + theme(strip.background = element_blank())
+
+ggsave(hilic_intra_labels, file = paste0(outdir, "hilic_intra_arg_topIDcomps_sub.pdf"), width = 6, height = 4.5)
+
+hilic_intra_labels
+
+############# Supp table
+tab_save <- median_dat[(CompID %in% top_labeled_comps) & Strain != "c" & ArgGroup == "HR"][V1 != 0 & V2 != 0]
+setnames(tab_save, c("V2", "V3"), c("MeanPeakArea", "SEPeakArea"))
+tab_save[,MID:=MeanPeakArea/sum(MeanPeakArea), by = list(CompID, Strain, ArgGroup)]
+good_isos <- tab_save[,sum(MeanPeakArea), by=list(CompID, NumLabeledC)][V1 > 50000]
+
+tab_save <- dcast(tab_save[paste0(CompID, NumLabeledC) %in% good_isos[,paste0(CompID, NumLabeledC)] & Time == 56], CompID+Name+MSI+Formula+Strain ~ paste0("M+", NumLabeledC), value.var = c("MeanPeakArea", "SEPeakArea", "MID"))
+
+names(tab_save)[grepl("MeanPeakArea", names(tab_save))] <- paste0(gsub("MeanPeakArea_", "", names(tab_save)[grepl("MeanPeakArea", names(tab_save))]), "_Mean Peak Area")
+names(tab_save)[grepl("SEPeakArea", names(tab_save))] <- paste0(gsub("SEPeakArea_", "", names(tab_save)[grepl("SEPeakArea", names(tab_save))]), "_SE Peak Area")
+names(tab_save)[grepl("MID", names(tab_save))] <- paste0(gsub("MID_", "", names(tab_save)[grepl("MID", names(tab_save))]), "_MID")
+tab_save[,MolWt:=sapply(CompID, function(x){
+  foo <- strsplit(x, split = "_")[[1]]
+  return(foo[1])
+})]
+tab_save[,RT:=sapply(CompID, function(x){
+  foo <- strsplit(x, split = "_")[[1]]
+  return(foo[2])
+})]
+tab_save[,MSI:=gsub("MSI_", "", str_extract(MSI, "MSI_[0-9]"))]
+tab_save[,CompID:=sapply(CompID, function(x){
+  foo <- strsplit(x, split = "_")[[1]]
+  return(paste(foo[c(1,2,3,5)], collapse = "_"))
+})]
+tab_save <- tab_save[,c("CompID", "Name", "MSI", "MolWt", "Formula", "RT", sort(names(tab_save)[6:44])), with=F]
+fwrite(tab_save[order(MolWt)], file = paste0(outdir, "intracellular_arg_labeling_summary.tsv"), sep = "\t")
+
+```
+
+# Figure S5 - Arginine SIRM extracellular
+
+```{r fig_s5_extra}
+####################### Extracellular
+rm(list = ls())
+datadir <- "../SILArginine2022-03/"
+outdir <- "figure_s6/"
+
+hilic_extra <- readRDS(paste0(datadir, "SIL_Extra_HILIC_LowLevelDataAllProcessed.rds"))
+hilic_extra[,MinFeatValue:=min(AreaFrac[AreaFrac != 0]), by = FeatID]
+hilic_extra[,log10value:=log10(AreaFrac + 0.25*MinFeatValue)]
+
+labeled_comps <- hilic_extra[,sum(AreaFrac), by=list(CompID, NumLabeledC)][NumLabeledC > 0 & V1 > 1e5, unique(CompID)]
+
+frac_labeling <- hilic_extra[ArgGroup=="HR" & Strain != "c",list(sum(AreaFrac[NumLabeledC==0]), sum(AreaFrac[NumLabeledC != 0])), by=CompID]
+frac_labeling[,LabelFrac:=V2/(V2+V1)]
+top_labeled_comps <- frac_labeling[V2 > 1e5 & LabelFrac > 0.1, CompID]
+top_labeled_comps2<- frac_labeling[V2 > 1e7 & V1+V2 > 5e7 & LabelFrac > 0.1, CompID]
+top_labeled_comps3 <- frac_labeling[LabelFrac > 0.05, CompID]
+
+median_dat <- hilic_extra[,median(AreaFrac), by = list(CompID, Formula, FeatID, NumLabeledC, Name, ArgGroup, Strain, TimePoint, Time)]
+most_abund_iso <- median_dat[ArgGroup == "HR" & Strain == "2243",list(NumLabeledC[which.max(V1)], max(V1)), by = list(CompID, Formula)]
+
+hilic_extra[,IonMode:=ifelse(grepl("Pos$", CompID), "Pos", "Neg")]
+
+mean_dat <- hilic_extra[,list(mean(AreaFrac), sd(AreaFrac)/sqrt(length(AreaFrac)), mean(value)), 
+                        by = list(CompID, FeatID, Formula, MSI, NumLabeledC, IonMode, ArgGroup, Strain, TimePoint, Time, Name)]
+mean_dat_sub <- mean_dat[ArgGroup == "HR" & Strain == "2243" & FeatID %in% most_abund_iso[V1 != 0 & grepl("Pos$", CompID)][order(V2, decreasing = T)][1:3, paste0(CompID, "_ExRate", V1)]]
+mean_dat_sub[,Name2:=factor(Name, levels = c("DL-Arginine", "L-(+)-Citrulline", "L(+)-Ornithine"))]
+levels(mean_dat_sub$Name2) <- c("Arginine\n(6 labels)", "Citrulline\n(6 labels)", "Ornithine\n(5 labels)")
+arg_plot <- ggplot(mean_dat_sub, aes(x = Time, y = V1, color = Name2)) + geom_point(size = 2) + geom_line(aes(group = FeatID)) + geom_errorbar(aes(ymin = V1-V2, ymax = V1+V2), width = 0) + scale_color_brewer(palette = "Set1", name = "") + ylab("Peak area in supernatant") + xlab("Time (hr)") + theme(axis.text = element_text(size = 10))
+
+ggsave(arg_plot, file = paste0(outdir, "arg_labels.pdf"), width = 4, height = 2.6)
+
+arg_plot
+
+feat_data_wide <- dcast(mean_dat[Strain == "2243" & ArgGroup == "HR"], FeatID+CompID+Formula+Name+NumLabeledC~TimePoint, value.var = "V1")
+
+max_vals <- hilic_extra[,.(MaxVal = max(AreaFrac)), by = FeatID]
+feat_data_wide <- merge(feat_data_wide, max_vals, by = "FeatID", all.x = T)
+feat_data_wide[,log2FCTP4_TP0:=log2((TP4+1000)/(TP0+1000))]
+
+
+new_color_scale <- c("gray", brewer.pal(9, "YlGnBu"))
+
+tot_vals <- feat_data_wide[,list(sum(TP0), sum(TP4)), by = CompID]
+tot_vals[,log2FC:=log2((V2+1000)/(V1+1000))]
+comp_order <- tot_vals[,log2FC[which.max(abs(log2FC))], by = CompID][order(V1), CompID]
+
+
+top_comps2 <- feat_data_wide[(log2FCTP4_TP0 > 4|Name=="DL-Arginine") & MaxVal > 1e6 & NumLabeledC > 0, unique(CompID)]
+top_comps2b <- top_comps2[!grepl("known", top_comps2)]
+top_comps2b <- sort(top_comps2b)[c(1:5, 7:15, 17, 18, 20, 21, 22)]
+top_comps3 <- intersect(top_comps2b, top_labeled_comps3)
+
+comp_order2 <- feat_data_wide[CompID %in% top_comps2b & TP4 != 0, 
+                              list(max(NumLabeledC), TP4[which.max(NumLabeledC)], NumLabeledC[which.max(TP4)]), by = Name][order(V3, V1, V2, decreasing = T), Name]
+comp_order2 <- comp_order2[c(2, 1, 3:19)]
+mean_dat[,NumLC2:=paste0("M+", NumLabeledC)]
+
+hilic_extra_labels <- ggplot(mean_dat[ArgGroup == "HR" & Strain == "2243" & CompID %in% top_comps3 & !grepl("known", Name)], 
+                             aes(x = factor(Time), y = V1, fill = factor(NumLC2))) + geom_bar(stat = "identity", color = "black") + 
+  facet_wrap(~factor(Name, levels = comp_order2), ncol = 3, scales = "free_y") + 
+  scale_fill_manual(values = new_color_scale, name = "Labeling Pattern") + 
+  theme(axis.text = element_text(size = 7.5), strip.text = element_text(size = 9)) + xlab("Time (hr)") + 
+  ylab("Mean Peak Area from Supernatant") + theme(strip.background = element_blank())
+
+ggsave(hilic_extra_labels, file = paste0(outdir, "sil_arg_hilic_extra_barplots_v2.pdf"), width = 7, height = 6)
+
+hilic_extra_labels
+
+most_abund_comps_pos <- mean_dat[ArgGroup == "HR" & Strain == "2243" & grepl("Pos$", CompID), sum(V1), by=CompID][order(V1, decreasing = T)][1:12, CompID]
+tot_signal_plot_extra <- ggplot(mean_dat[ArgGroup == "HR" & Strain == "2243" & CompID %in% most_abund_comps_pos & 
+                                           NumLC2 %in% c("M+0", "M+5", "M+6")], aes(x = factor(Time), fill = factor(CompID, levels = most_abund_comps_pos), y = V1)) + 
+  geom_bar(position = "stack", stat = "identity", color = "black") + facet_wrap(~NumLC2, nrow = 1) + 
+  scale_fill_manual(values =  brewer.pal(12, "Set3"), name = "Compound ID") + ylab("Mean Peak Area") + xlab("Time (hr)") + 
+  theme(legend.position = "bottom", strip.text = element_text(size = 12)) + guides(fill = guide_legend(ncol = 2))#+ guides(fill = "none")
+
+ggsave(tot_signal_plot_extra, file = paste0(outdir, "totalSignalExtracellular.pdf"), width = 7, height = 5)
+
+tot_signal_plot_extra
+
+############# Supp table
+tab_save <- mean_dat[(CompID %in% intersect(top_comps2, top_labeled_comps3)) & Strain != "c" & ArgGroup == "HR"][V1 != 0]
+setnames(tab_save, c("V1", "V2"), c("MeanPeakArea", "SEPeakArea"))
+tab_save[,MID:=MeanPeakArea/sum(MeanPeakArea), by = list(CompID, Strain, ArgGroup)]
+good_isos <- tab_save[,sum(MeanPeakArea), by=list(CompID, NumLabeledC)][V1 > 50000]
+
+tab_save <- dcast(tab_save[paste0(CompID, NumLabeledC) %in% good_isos[,paste0(CompID, NumLabeledC)] & Time == 56], CompID+Name+MSI+Formula+Strain ~ paste0("M+", NumLabeledC), value.var = c("MeanPeakArea", "SEPeakArea", "MID"))
+
+names(tab_save)[grepl("MeanPeakArea", names(tab_save))] <- paste0(gsub("MeanPeakArea_", "", names(tab_save)[grepl("MeanPeakArea", names(tab_save))]), "_Mean Peak Area")
+names(tab_save)[grepl("SEPeakArea", names(tab_save))] <- paste0(gsub("SEPeakArea_", "", names(tab_save)[grepl("SEPeakArea", names(tab_save))]), "_SE Peak Area")
+names(tab_save)[grepl("MID", names(tab_save))] <- paste0(gsub("MID_", "", names(tab_save)[grepl("MID", names(tab_save))]), "_MID")
+tab_save[,MolWt:=sapply(CompID, function(x){
+  foo <- strsplit(x, split = "_")[[1]]
+  return(foo[1])
+})]
+tab_save[,RT:=sapply(CompID, function(x){
+  foo <- strsplit(x, split = "_")[[1]]
+  return(foo[2])
+})]
+tab_save[,MSI:=gsub("MSI_", "", str_extract(MSI, "MSI_[0-9]"))]
+tab_save[,CompID:=sapply(CompID, function(x){
+  foo <- strsplit(x, split = "_")[[1]]
+  return(paste(foo[c(1,2,3,5)], collapse = "_"))
+})]
+tab_save <- tab_save[,c("CompID", "Name", "MSI", "MolWt", "Formula", "RT", sort(names(tab_save)[6:44])), with=F]
+fwrite(tab_save[order(MolWt)], file = paste0(outdir, "extracellular_arg_labeling_summary.tsv"), sep = "\t")
+
+
+```
+

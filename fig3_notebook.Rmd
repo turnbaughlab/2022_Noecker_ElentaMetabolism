@@ -1,0 +1,539 @@
+---
+title: "E. lenta metabolism paper full analysis - Figure 3/FBA related"
+author: "Cecilia Noecker"
+date: '`r format(Sys.time(), "%Y-%m-%d %H:%M")`'
+output:
+  html_document:
+    code_folding: show
+    theme: spacelab
+    number_sections: true
+    highlight: monochrome
+    fig_width: 11
+    fig_height: 8.5
+    toc: true
+    toc_float: true
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F)
+```
+
+# Figure 3 (FBA etc)
+
+```{r fig3}
+#### Figure 3 - FBA comparison sub
+library(data.table)
+library(tidyverse)
+library(ggpubr)
+library(RColorBrewer)
+library(patchwork)
+theme_set(theme_classic2())
+
+### File paths
+flux_dir <- "../../ElentaFBA/"
+rna_dir <- "../RNASeq_2022-02/"
+#growth_dir <- "../GrowthExperiments/"
+growth_dir <- "fig_s3/"
+media_dir <- "../../ElentaMediasAll/"
+outdir <- "figure3/"
+dir.create(outdir)
+
+sessionInfo()
+
+fva_data <- fread(paste0(flux_dir, "DM1b_fva_fluxes_25559.txt"))
+pfba_solution <- fread(paste0(flux_dir, "DM1b_pfba_fluxes_25559.txt"))
+pfba_solution[,Rxn:=gsub("_[fb]$", "", Var1)]
+pfba_solution[,Dir:=gsub(".*_", "", Var1)]
+pfba_solution[!Dir %in% c("f", "b"), Dir:="f"]
+pfba_solution <- dcast(pfba_solution, Rxn~Dir, value.var = "Var2", fill = 0)
+pfba_solution[,value:=ifelse(f==0 & b != 0, -1*b, f)]
+pfba_solution <- pfba_solution[Rxn != "fluxMeasure"]
+rxn_names <- fread(paste0(flux_dir, "Elenta25559_rxnInfo.txt"))
+fva_data <- merge(fva_data, pfba_solution[,list(Rxn, value)], by.x = "Var1", by.y = "Rxn", all = T)
+fva_data <- merge(fva_data, rxn_names[,list(Var1, Var2)], by = "Var1", all = T)
+setnames(fva_data, c("Rxn", "Subsystem", "FVA_LB", "FVA_UB", "LB", "UB", "pFBA", "RxnName"))
+fva_data[Subsystem == "" | is.na(Subsystem) | Subsystem == "Unassigned" | Subsystem == "Miscellaneous", Subsystem:="Other"]
+fva_data[Subsystem == "Exchange", Subsystem:="Exchange/demand reaction"]
+fva_data[Subsystem == "Urea cycle", Subsystem:="Arginine and proline metabolism"]
+fva_data[grepl("t2r", Rxn)|grepl("t2", Rxn), Subsystem:="Transport, extracellular"]
+active_subsystems <- fva_data[,sum(abs(pFBA) > 0), by=Subsystem][V1 > 1, Subsystem]
+subsystem_order <- fva_data[,sum(abs(pFBA) > 0), by=Subsystem][order(V1), Subsystem]
+subsystem_order2 <- fva_data[,max(abs(pFBA)), by = Subsystem][V1 > 0][order(V1, decreasing = T), Subsystem]
+
+rxn_order <- fva_data[order(abs(pFBA), decreasing = T), Rxn]
+rxn_name_order <- fva_data[order(abs(pFBA), decreasing = T), paste0(RxnName, " ", Rxn)]
+
+fva_data[,On:=ifelse(pFBA ==0, "off", "on")]
+
+subsystem_order <- fva_data[,sum(abs(pFBA) > 0), by=Subsystem][order(V1), Subsystem]
+top_top_sub <- fva_data[pFBA != 0 & !grepl("Exchange", Subsystem) & Subsystem != "", length(Rxn), by=Subsystem][order(V1, decreasing = T)][1:20, Subsystem]
+on_off_plot3 <- ggplot(fva_data[!grepl("Exchange", Subsystem) & Rxn != "bio1" & Subsystem %in% top_top_sub & !is.na(Subsystem)], 
+                       aes(x = factor(Subsystem, levels =rev(top_top_sub)), fill = factor(On))) + geom_bar(stat = "count", position = "stack", color = "black") + 
+  coord_flip()+ scale_fill_manual(values = c("gray90", "darkblue"), name = "", labels = c("Inactive", "Active in EDM1")) + theme_pubr()+xlab("") + 
+  theme(axis.ticks.y = element_blank(), axis.text.y = element_text(size = 9), legend.position = "bottom") + scale_y_continuous(expand = c(0,0), name = "Number of reactions")
+
+ggsave(on_off_plot3, file = paste0(outdir, "DM1b_ATCC25559_fluxesOnOff_counts_top20.pdf"), width = 4, height = 4)
+
+on_off_plot3 
+
+############ Arg/Ac compare CODH
+single_robustness_data <- fread(paste0(flux_dir, "DM1b_acetateRobustness_withWithoutCODH.txt"))
+single_robustness_data_arg <- fread(paste0(flux_dir, "DM1b_argRobustness_withWithoutCODH.txt"))
+
+single_robustness_data <- rbind(data.table(single_robustness_data[,1:2, with=F], Model = "Curated model"), data.table(single_robustness_data[,3:4,with=F], Model = "Model with CODH"), use.names = F)
+single_robustness_data_arg <- rbind(data.table(single_robustness_data_arg[,1:2, with=F], Model = "Curated model"), data.table(single_robustness_data_arg[,3:4,with=F], Model = "Model with CODH"), use.names = F)
+
+ac_plot <- ggplot(single_robustness_data, aes(x = -1*as.numeric(acetate_fluxes), y = acetate_growthRates, color = Model)) + 
+  geom_vline(xintercept = 0, linetype = 2, color = "gray")+ geom_line(size = 1.2)  + 
+  xlab("Acetate uptake rate\n(mM/gDW/hr)") + theme_classic2() + ylab("FBA growth rate") +
+  scale_color_brewer(palette = "Set1", labels = c("Curated model", "Previous model with CODH"))+ theme(legend.position = "bottom")+ xlim(-20, 90)
+
+arg_plot <- ggplot(single_robustness_data_arg, aes(x = -1*as.numeric(arg_fluxes), y = arg_growthRates, color = Model)) + 
+  geom_vline(xintercept = 0, linetype = 2, color = "gray")+ geom_line(size = 1.2) + xlim(-0.1, 170) + 
+  xlab("Arginine uptake rate\n(mM/gDW/hr)") + theme_classic2()+ ylab("FBA growth rate")+ 
+  scale_color_brewer(palette = "Set1") + theme(legend.position = "bottom")
+
+ggsave(ac_plot + arg_plot + guides(color = "none"), file = paste0(outdir, "ac_arg_robustness_plot.pdf"), width = 5.5, height = 3.2)
+
+ac_plot + arg_plot + guides(color = "none")
+
+################ Growth LOO comparison
+loo_results <- fread(paste0(growth_dir, "suppTable_loo_growth_summary.tsv"))
+loo_results[,FracR:=sapply(r_mean, function(x){ x/loo_results[LOO=="EDM1", r_mean]})]
+loo_results[,FracK:=sapply(k_mean, function(x){ x/loo_results[LOO=="EDM1", k_mean]})]
+loo_results[,FractionAUC_e:=sapply(auc_e_mean, function(x){ x/loo_results[LOO=="EDM1", auc_e_mean]})]
+loo_results[,GrowthBinary:=ifelse(FracR > 0.01 & FracK > 0.05 & FractionAUC_e > 0.05, 1, 0)]
+summary_loo <- loo_results
+name_tab <- data.table(Name = loo_results[,sort(unique(LOO))])
+name_tab[,ID:=c("ac", "arg_L", "ascb_L", "b12", "btn", "ca2", "cobalt2", "cu2", "cys_L", "Base", "fe2", "fol", "", "hco3", "pheme", "his_L", "ile_L", "leu_L", "lys_L", "mndn_L", "met_L", "mg2", "mn2", "mobd", "nad", "ni2", "no3", 
+                "4abz", "pnto_R", "phe_L", "pro_L", "pydam","ribflv", "ser_L", "thm", "thr_L", "trp_L", "tyr_L", "ura", "val_L", "", "zn2")]
+name_tab[,Category:=c("Others", "Amino acids", "Vitamins", "Vitamins", "Vitamins", rep("Minerals", 3), "Amino acids", "", "Minerals", "Vitamins", "", "Others", "Vitamins", rep("Amino acids", 4), "Vitamins", "Amino acids", rep("Minerals", 3), "Vitamins", "Minerals", "Minerals", "Vitamins", "Vitamins", "Amino acids", "Amino acids", rep("Vitamins", 2), "Amino acids", "Vitamins", rep("Amino acids", 3), "Others", "Amino acids", "", "Minerals")]
+fwrite(name_tab, file = paste0(outdir, "fba_loo_compoundNames.txt"))
+
+summary_loo <- merge(summary_loo, name_tab, by.x = "LOO", by.y = "Name")
+
+### FBA preds
+single_loo_results <- fread(paste0(flux_dir, "DM1b_LOO_predictions_2022-08_Eggerthella_lenta_ATCC_25559.txt"))
+
+setnames(single_loo_results, c("Compound", "value")) #"CODH_KO", "Orig2243"))
+single_loo_results[,CompoundID:=gsub("EX_", "", gsub("(e)", "", Compound, fixed = T))]
+met_info <- fread(paste0(flux_dir, "reconstructions/Eggerthella_lenta_2020-5-25/Eggerthella_lenta_ATCC_25559_metInfo.txt"))
+
+met_info[,CompoundNoRoot:=gsub("\\[[c-e]\\]", "", Compound)]
+single_loo_results <- merge(single_loo_results, met_info[(grepl("[e]", Compound, fixed = T)|grepl("(e)", Compound, fixed = T)),list(CompoundNoRoot, MetName)], by.x = "CompoundID", by.y = "CompoundNoRoot", all.x = T)
+single_loo_results[,ID:=gsub("EX_", "", gsub("\\(e\\)", "", Compound))]
+single_loo_results <- merge(single_loo_results, summary_loo, by = "ID", all.x = T)
+single_loo_results[,Category:=factor(Category, levels = c("Amino acids", "Vitamins", "Minerals", "Others"))]
+single_loo_results[,LOO:=factor(LOO, levels = rev(sort(LOO)))]
+setnames(single_loo_results, c("value", "auc_e_mean"), c("SimulationGrowthRate", "ExperimentalAUCe"))
+single_loo_results_long <- melt(single_loo_results[!is.na(GrowthBinary)], measure.vars = c("SimulationGrowthRate", "ExperimentalAUCe"))
+
+single_loo_results_long[value == 0, value:=NA]
+single_loo_results_long[,value2:=case_when(
+  variable == "SimulationGrowthRate" ~ value/max(value, na.rm = T),
+  TRUE ~ FractionAUC_e) , by=variable]
+single_loo_results_long[GrowthBinary==0 & variable == "ExperimentalAUCe", value2:=NA]
+
+loo_plot2 <- ggplot(single_loo_results_long[variable %in% c("SimulationGrowthRate", "ExperimentalAUCe")], aes(x = LOO, y = 1, fill = value2)) + geom_tile() + scale_fill_distiller(palette= "Blues", direction = 1, name = "Relative growth rate or AUC_e", na.value = "gray90") + facet_grid(variable~Category, scales = "free_x", space = "free_x", switch = "y") + theme_bw() + theme(strip.text.x = element_text(angle = 0), axis.text.y = element_blank(), axis.title = element_blank(), axis.ticks.y = element_blank(), strip.background = element_blank(), axis.text.x = element_text(angle = 320, hjust = 0, vjust = 0.5), legend.position = "bottom", strip.text = element_text(angle = 0)) 
+
+ggsave(loo_plot2, file = paste0(outdir, "loo_comparison_horizontal.pdf"), width = 8, height= 3)
+
+loo_plot2 
+
+binary_count <- single_loo_results[!is.na(GrowthBinary), length(LOO), by=list(factor(GrowthBinary == 1), factor(SimulationGrowthRate > 0))]
+
+confusion_matrix <- ggplot(single_loo_results[!is.na(GrowthBinary)], aes(y = factor(GrowthBinary == 1), x = factor(SimulationGrowthRate > 0))) + geom_bin_2d() + scale_fill_distiller(palette = "Purples", direction = 1) + theme_minimal() + guides(fill = "none") + geom_text(data = binary_count, aes(y = factor, x = factor.1, label = V1), color = "gray40", size = 6) + xlab("Conditions with predicted growth") + ylab("Conditions with observed growth")
+
+ggsave(confusion_matrix, file = paste0(outdir, "LOO_confusion_matrix.pdf"), width = 3, height = 2.6)
+
+confusion_matrix
+
+# Get a p-value
+single_loo_results[!is.na(GrowthBinary), fisher.test(table(GrowthBinary == 1, SimulationGrowthRate > 0))]
+
+## Get Matthews corr coef
+mcc <- function(tp, tn, fp, fn){
+  return((tp*tn - fp*fn)/sqrt((tp+fp)*(tp+fn)*(tn+fp)*(tn+fn)))
+}
+mcc(binary_count[1, V1], binary_count[4, V1], binary_count[2, V1], binary_count[3, V1])
+
+
+###### Secretion plot - show both uptake and secretion and indicate in bold if detected in any met dataset
+
+met_results <- fread(paste0(media_dir, "strainLog2FCs_bigg.txt"))
+met_results2243 = met_results[Name2=="Eggerthella_lenta_DSM2243D" | Name2=="Eggerthella_lenta_ATCC25559" | Name2=="Eggerthella_lenta_UCSF2243"]
+met_results2243[BiggExcRxn=="EX_orn_L(e)", BiggExcRxn:="EX_orn(e)"]
+met_results2243[BiggExcRxn=="EX_Lcyst(e)", BiggExcRxn:="EX_cys_L(e)"]
+
+met_results_summary <- met_results2243[,list(log2FC[which.max(abs(log2FC))], median(log2FC)), by = list(BiggExcRxn, MetName)]
+exch_data <- fva_data[grepl("^EX", Rxn) & !(FVA_LB==0 & FVA_UB==0)]
+exch_data <- merge(exch_data, met_results_summary, by.x = "Rxn", by.y = "BiggExcRxn", all.x = T)
+exch_data[,MetOutcome:=case_when(
+  !is.na(V2) & V1 > 0.5 & V2 > 0 ~ "Produced",
+  !is.na(V2) & V1 < 0.5 & V2 < 0 ~ "Depleted",
+  !is.na(V2) ~ "No consistent metabolite shift",
+  TRUE ~ "No data"
+)]
+exch_data[,MetOutcome:=factor(MetOutcome, levels = c("No data", "No consistent metabolite shift", "Produced", "Depleted"))]
+comp_order <- exch_data[order(FVA_UB), MetName]
+exch_data[,logFlux:=log10(abs(pFBA))*ifelse(pFBA < 0, -1, 1)]
+exch_data[,logFluxMin:=log10(abs(FVA_LB))*ifelse(FVA_LB < 0, -1, 1)]
+exch_data[,logFluxMax:=log10(abs(FVA_UB))*ifelse(FVA_UB < 0, -1, 1)]
+
+exch_data[,FVAPred:=factor(case_when(
+  FVA_LB < -1e-10 & FVA_UB > 1e-10 ~ "FVA uptake or secretion",
+  FVA_UB > 1e-10 ~ "FVA secretion",
+  FVA_LB < -1e-10 ~ "FVA uptake"
+), levels = c("FVA uptake", "FVA uptake or secretion", "FVA secretion"))]
+
+secretion_plot <- ggplot(exch_data[MetOutcome != "No data"], 
+                         aes(x = factor(MetName, levels = comp_order), y = pFBA, color = MetOutcome)) + 
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_errorbar(aes(ymin = FVA_LB, ymax = FVA_UB), width = 0, size = 1.7) + geom_point(size = 1.5)+ 
+  scale_color_manual(values = c("gray80", brewer.pal(3, "Set1")[1:2]), name = "Metabolomics results") + theme_classic2() +
+  ylab("Import or export flux\n(mM/gDW/hr)") + xlab("") + facet_grid(.~FVAPred, scales = "free", space = "free") + theme(axis.text.y = element_text(size =8),
+                                                                                                                         axis.text.x = element_text(size = 8,
+                                                                                                                                                    angle = 320, hjust = 0, vjust = 0.5))
+
+ggsave(secretion_plot, file = paste0(outdir, "fva_secretion_metabolomics_compare_horizontal.pdf"), width = 8.5, height = 3.2)
+
+secretion_plot
+
+############ Panel A - numbers of genes, mets, reactions
+
+##Update to include fraction active in DM1b
+active_rxns <- fva_data[abs(pFBA) > 1e-10]
+rxn_info <- fread(paste0(flux_dir, "reconstructions/Eggerthella_lenta_2020-5-25/Eggerthella_lenta_ATCC_25559_rxnInfo.txt"))
+orig_met_info <- fread(paste0(flux_dir, "reconstructions/Eggerthella_lenta_2020-5-25/Eggerthella_lenta_ATCC_25559_metInfo.txt"))
+
+gene_list <- sort(unique(unlist(strsplit(rxn_info[Rxn %in% pfba_solution[,Rxn],unique(AllGenes)], split = "\\|"))))
+gene_list <- gene_list[grepl("_CDS$", gene_list)]
+
+orig_met_list <- sort(unique(c(unlist(strsplit(rxn_info[,Reactants], split = "\\|")), unlist(strsplit(rxn_info[,Products], split = "\\|")))))
+updated_met_list <- fread(paste0(flux_dir, "ATCC25559curatedMetList.txt"))$updated_met_list
+updated_rxn_list <- fread(paste0(flux_dir, "ATCC25559curatedRxnList.txt"))$updated_rxn_list
+updated_rxn_info <- fread(paste0(flux_dir, "ATCC25559curatedRxnInfo.txt"))
+
+updated_rxn_info[,Prods:=gsub(".*=", "", Var2)]
+updated_rxn_info[,Reacs:=gsub("=.*", "", Var2)]
+updated_rxn_info[,Genes:=strsplit(Var3, split = " [andor]+ ")]
+updated_rxn_info[,Genes:=lapply(Genes, function(x){
+  gsub("^ ", "", gsub("[\\)]+", "", gsub("[\\(]+", "", gsub(" [\\(]+", "", gsub(" [\\)]+", "", x)))))
+})]
+updated_gene_list <- sort(unique(unlist(updated_rxn_info[,Genes])))
+updated_gene_list <- updated_gene_list[!grepl("_CDS$", updated_gene_list) & !updated_gene_list %in% c("Unknown", "essentialGapfill")]
+
+active_gene_list <- sort(unique(unlist(updated_rxn_info[Var1 %in% active_rxns[,Rxn],Genes])))
+active_gene_list <- active_gene_list[active_gene_list %in% updated_gene_list]
+
+active_mets <- which(sapply(updated_met_list, function(x){ any(grepl(x, updated_rxn_info[Var1 %in% active_rxns[,Rxn], Var2], fixed = T))}))
+
+orig_counts <- data.table(Feature = c("Reactions", "Metabolites", "Genes"), Number = c(length(unique(rxn_info$Rxn)), 
+                                                                                       length(unique(met_info$Compound)), 
+                                                                                       length(gene_list)), Type = "Original\nreconstruction")
+curated_counts <- data.table(Feature = c("Reactions", "Metabolites", "Genes"), Number = c(length(unique(updated_rxn_info$Var1)), 
+                                                                                          length(unique(updated_met_list)), 
+                                                                                          length(updated_gene_list)), Type = "Curated\nreconstruction")
+active_counts <- data.table(Feature = c("Reactions", "Metabolites", "Genes"), Number = c(length(unique(active_rxns[,Rxn])), 
+                                                                                         length(unique(active_mets)), 
+                                                                                         length(active_gene_list)), 
+                            Type = "Active in\nEDM1 model")
+
+curated_mod_summary <- rbind(orig_counts, curated_counts, active_counts, fill = T)
+
+curated_mod_summary[,Feature:=factor(Feature, levels = c("Genes", "Reactions", "Metabolites"))]
+curated_mod_summary[,Count2:=ifelse(Type=="Total", Number - Number[Type=="Active in EDM1"], Number), by=Feature]
+curated_mod_summary[,Type2:=factor(ifelse(Type=="Total", "Active in EDM1", "Not active in EDM1"), levels = c("Not active in EDM1", "Active in EDM1"))]
+curated_mod_summary[,Type:=factor(Type, levels = c("Original\nreconstruction", "Curated\nreconstruction", "Active in\nEDM1 model"))]
+
+mod_summary_barplot <- ggplot(curated_mod_summary, aes(x = Feature, y = Number, fill = Feature)) + 
+  geom_bar(stat = "identity", position = "dodge", color = "black") + scale_fill_brewer(palette = "Dark2") + 
+  facet_wrap(~Type) + theme_classic2() + xlab("") + ylab("Count") + 
+  scale_y_continuous(expand = c(0,0), limits = c(0, 1250)) + theme(axis.ticks.x = element_blank(), 
+                                                                   axis.text = element_text(size = 12), 
+                                                                   strip.text = element_text(size = 10), 
+                                                                   legend.text = element_text(size = 12), 
+                                                                   legend.position = "bottom", 
+                                                                   strip.background = element_blank()) + 
+  scale_x_discrete(labels = c("G", "R", "M"))
+
+ggsave(mod_summary_barplot, file = paste0(outdir, "model_summary_barplot_expanded.pdf"), width = 3.5, height = 2.8)
+
+mod_summary_barplot
+
+################## RNA comparison
+
+## Model mapping table
+strain_annot_file <- paste0(flux_dir, "reconstructions/Eggerthella_genomes/Eggerthella_lenta_ATCC25559_35633_241_1.gff")
+annot_table <- fread(strain_annot_file, skip = 1, header = F, fill = T, sep = "\t")
+annot_table[,Genome:=gsub("\\|.*$", "", V1)]
+annot_table[,GeneID:=gsub("ID=", "", gsub("; .*$", "", V9))]
+
+blast_results <- fread("../../ElentaFBA/reconstructions/Eggerthella_genomes/ATCC25559_ref2243Genes_blast.txt")
+
+## Compare with inferred fluxes in the base condition
+fva_data <- fread(paste0(flux_dir, "DM1b_70arg-70ac_fva_fluxes_25559.txt"))
+pfba_solution <- fread(paste0(flux_dir, "DM1b_70arg-70ac_pfba_fluxes_25559.txt"))
+pfba_solution[,Rxn:=gsub("_[bf]$", "", Var1)]
+pfba_solution[,Dir:=case_when(grepl("_b$", Var1) ~ "Rev",
+                              grepl("_f$", Var1) ~ "Fwd",
+                              TRUE ~ "Fwd")]
+pfba_solution <- dcast(pfba_solution, Rxn~Dir, value.var = "Var2", fill = 0)
+pfba_solution[,Flux:=ifelse(Rev > 0, -1*Rev, Fwd)]
+pfba_solution[abs(Flux) < 1e-20 & Flux != 0, Flux:=0]
+pfba_solution <- pfba_solution[Rxn != "netFlux"]
+rxn_names <- fread(paste0(flux_dir, "Elenta25559_rxnInfo.txt"))
+fva_data <- merge(fva_data, pfba_solution[,list(Rxn, Flux)], by.x = "Var1", by.y = "Rxn", all = T)
+#fva_data <- merge(fva_data, rxn_names[,list(Var1, Var3)], by = "Var1", all = T)
+fva_data[Var2 == "" | is.na(Var2) | Var2 == "Unassigned" | Var2 == "Miscellaneous", Var2:="Other"]
+fva_data[Var2 == "Exchange", Var2:="Exchange/demand reaction"]
+fva_data[Var2 == "Urea cycle", Var2:="Arginine and proline metabolism"]
+fva_data[grepl("t2r", Var1), Var2:="Transport, extracellular"]
+setnames(fva_data, c("Rxn", "Subsystem", "minFluxFVA", "maxFluxFVA","LB", "UB", "pFBAFlux"))
+strain_info <- fread(paste0(flux_dir, "reconstructions/Eggerthella_lenta_2020-5-25/Eggerthella_lenta_ATCC_25559_rxnInfo.txt"))
+strain_info[,Genes:=sapply(AllGenes, strsplit, split = "\\|")]
+strain_genes <- unnest(strain_info[,list(Rxn,Genes)], cols = c(Genes)) %>% data.table()
+strain_genes[!Genes %in% blast_results[,V1]] ## Eggerthella_lenta_ATCC25559.CDS.2056 is the only one missing from blast results - will have to check where it is annotated - succinate/fumarate gene
+
+## Merge with FVA results first
+strain_genes <- merge(strain_genes, fva_data, by = "Rxn", all.x = T)
+
+## Then with BLAST mapping results, get rid of duplicates
+strain_genes <- merge(strain_genes, blast_results[,list(V1, V2)], by.x = "Genes", by.y = "V1", all.x = T)
+setnames(strain_genes, "V2", "locus_tag")
+strain_genes[,GeneRank:=rank(Genes), by=list(Rxn, locus_tag)]
+strain_genes <- strain_genes[!grepl("_CDS$", Genes)] #Get rid of extra counting
+strain_genes <- unique(strain_genes)
+
+## RNA seq data
+load(paste0(rna_dir, "counts/FeatureCountsResultHisat2.rda"))
+count_table3 <- aligned3$counts %>% as.data.frame() %>% 
+  rownames_to_column("Gene") %>% as.data.table() %>% 
+  melt(id.var = "Gene", variable.name = "Sample")
+
+## RNA seq annotations - need the other gff
+annot_mapping_table <- fread("../../ElentaGenomeTables/mappingTable_NCBI_2243REF_oldLocusTags.tsv")
+locus_map <- unique(annot_mapping_table[,list(locus_tag, old_locus_tag)])
+
+gff <- fread(paste0(rna_dir, "GCF_000024265.1_ASM2426v1_genomic.gff"))
+setnames(gff, c("Chromosome", "Annotation", "Type", "Start", "End", "Score", "Strand", "Phase", "Attr"))
+gff <- gff[Type %in% c("CDS","riboswitch", "RNase_P_RNA", "rRNA", "SRP_RNA", "tmRNA", "tRNA")]
+gff[,Attr:=strsplit(Attr, split = ";")]
+gff[,ID:=sapply(Attr, function(x){
+  return(gsub("ID=", "", x[grepl("ID", x)]))
+})]
+gff[,locus_tag:=as.character(sapply(Attr, function(x){
+  if(any(grepl("locus_tag", x))){
+    return(gsub("locus_tag=", "", x[grepl("locus_tag", x)]))
+  } else return(NA)
+}))]
+gff[,gene:=sapply(Attr, function(x){
+  if(any(grepl("gene", x))){
+    return(gsub("gene=", "", x[grepl("gene=", x)]))
+  } else return(NA)
+})]
+gff[,product:=sapply(Attr, function(x){
+  if(any(grepl("product", x))){
+    return(gsub("product=", "", x[grepl("product", x)]))
+  } else return(NA)
+})]
+gff[,Parent:=sapply(Attr, function(x){
+  return(gsub("Parent=", "", x[grepl("Parent", x)]))
+})]
+gff[,Parent:=as.character(Parent)]
+gff[sapply(gene, length)==0, gene:=NA]
+gff[,Name2:=ifelse(is.na(gene), gsub("gene-", "", Parent), gene)]
+gff[,Name2:=as.character(Name2)]
+
+gff <- merge(gff, locus_map, by = "locus_tag", all.x = T)
+gff[,GeneLen:=End-Start]
+
+count_table3 <- merge(count_table3, gff[,list(ID, gene, locus_tag, product, Parent, Type, Name2, GeneLen)], by.x = "Gene", by.y = "ID", all.x = T)
+count_table3[,FeatureCounts_RPK:=value/GeneLen*1000]
+count_table3[,FeatureCounts_TPM:=FeatureCounts_RPK*1e6/sum(FeatureCounts_RPK, na.rm = T), by=Sample]
+mean_baseline_count3 <- count_table3[grepl("V", Sample), list(mean(FeatureCounts_TPM), sd(FeatureCounts_TPM)), by=list(locus_tag, Name2)]
+mean_baseline_count3 <- merge(mean_baseline_count3, gff[,list(locus_tag, Name2, product)], by=c("locus_tag", "Name2"), all.x = T)
+mean_baseline_count3 <- mean_baseline_count3[!is.na(locus_tag)]
+setnames(mean_baseline_count3, c("V1", "V2"), c("meanBaselineTPM", "SDBaselineTPM"))
+fwrite(mean_baseline_count3, file = paste0(outdir, "meanBaseTPM.tsv"), sep = "\t")
+
+strain_genes[,pFBAFlux2:=ifelse(abs(pFBAFlux < 1e-10), 0, pFBAFlux)]
+strain_genes <- merge(strain_genes, mean_baseline_count3, by= "locus_tag", all.x = T)
+strain_genes[,cor.test(abs(pFBAFlux2), meanBaselineTPM, method = "spearman")] ## Looks terrible but actually not bad
+
+
+### Split into quantiles
+strain_genes[,fluxQuantiles:=Hmisc::cut2(abs(pFBAFlux2), g=24)]
+strain_genes[,ExprQuantiles:=Hmisc::cut2(meanBaselineTPM, g=8)]
+quantile_version <- ggplot(strain_genes[!is.na(pFBAFlux)], aes(x = factor(as.numeric(fluxQuantiles)), y = meanBaselineTPM)) + geom_violin() + scale_y_log10() + theme_classic2() +
+  geom_boxplot(outlier.shape = NA, width = 0.05, coef = 0)+ annotate(geom = "text", x = 2.2, y = 11000, label= "rho = 0.34\np < 2.2e-16") + ylab("Average baseline gene expression\nin EDM1 (TPM)") +
+  xlab("Estimated flux quantile") #+ geom_jitter(height = 0, width = 0.2)
+
+ggsave(quantile_version, file = paste0(outdir, "RNASeq_pFBA_fluxes_comparison_quantiles.pdf"), width = 3.7, height = 3)
+
+quantile_version
+
+strain_genes[,fisher.test(table(pFBAFlux2 != 0, meanBaselineTPM > 20))]
+strain_genes[!is.na(locus_tag),table(pFBAFlux2 != 0, meanBaselineTPM  > 20)]
+strain_genes[!is.na(locus_tag), prop.table(table(pFBAFlux2 != 0, meanBaselineTPM > median(meanBaselineTPM)),1)]
+strain_genes[!is.na(locus_tag), prop.table(table(pFBAFlux2 != 0, meanBaselineTPM > quantile(meanBaselineTPM, 0.25)),1)]
+
+
+```
+
+# Figure S7 FBA knockout analysis
+
+```{r fig_s7}
+rm(list = ls())
+
+library(data.table)
+library(tidyverse)
+theme_set(ggpubr::theme_classic2())
+flux_dir <- "../../ElentaFBA/"
+outdir <- "figure_s7/"
+dir.create(outdir)
+
+sessionInfo()
+
+ko_files <- list.files(flux_dir, pattern = "curated08-22_singleRxnKO")
+ko_results_base <- fread(paste0(flux_dir, ko_files[2]))
+rxn_names <- fread(paste0(flux_dir, "Elenta25559_rxnInfo.txt"))
+ko_results_base <- merge(ko_results_base, rxn_names, by.x = "delRxn", by.y = "Var1", all.x = T)
+ko_results_base[,grRateKO:=ifelse(grRateKO < 1e-20, 0, grRateKO)]
+base_max <- ko_results_base[grRatio == 1, grRateKO][1]
+ko_results_base[,grRatio:=grRateKO/base_max]
+ko_results_base[,HasEffect2:=case_when(
+  grRateKO == 0 ~ "Essential", 
+  grRatio < 1 & grRateKO != 0 ~ "Has effect", 
+  abs(grRatio -1) < 1e-10 ~ "No effect")]
+
+ko_results_base[Var3 == "" | is.na(Var3) | Var3 == "Unassigned" | Var3 == "Miscellaneous", Var3:="Other"]
+ko_results_base[Var3 == "Exchange", Var3:="Exchange/demand reaction"]
+ko_results_base[Var3 == "Urea cycle", Var3:="Arginine and proline metabolism"]
+ko_results_base[grepl("t2r", delRxn), Var3:="Transport, extracellular"]
+
+top_subsystems <- ko_results_base[,length(hasEffect), by = Var3][order(V1, decreasing = T)][V1 > 3, Var3]
+
+ko_results_base[,Subsystem2:=ifelse(Var3 %in% top_subsystems, Var3, "Other")]
+sub_order <- ko_results_base[,length(hasEffect), by=Var3][order(V1, decreasing = T)][,Var3]
+ko_results_base[,Subsystem2:=factor(Subsystem2, levels = rev(sub_order))]
+
+ko_results_dm1b <- fread(paste0(flux_dir, ko_files[4]))
+ko_results_dm1b <- merge(ko_results_dm1b, rxn_names, by.x = "delRxn", by.y = "Var1", all.x = T)
+ko_results_dm1b[,grRateKO:=ifelse(grRateKO < 1e-20, 0, grRateKO)]
+dm1b_max <- ko_results_dm1b[grRatio == 1, grRateKO][1]
+ko_results_dm1b[,grRatio:=grRateKO/dm1b_max]
+ko_results_dm1b[,HasEffect2:=case_when(
+  grRateKO == 0 ~ "Essential", 
+  grRatio < 1 & grRateKO != 0 ~ "Has effect", 
+  abs(grRatio -1) < 1e-10 ~ "No effect")]
+ko_results_dm1b[Var3 == "Exchange", Var3:="Exchange/demand reaction"]
+ko_results_dm1b[Var3 == "Urea cycle", Var3:="Arginine and proline metabolism"]
+ko_results_dm1b[grepl("_t2r", delRxn), Var3:="Transport, extracellular"]
+ko_results_dm1b[,Subsystem2:=ifelse(Var3 %in% top_subsystems, Var3, "Other")]
+ko_results_dm1b[Subsystem2 %in% c("", "Unassigned", "Miscellaneous"), Subsystem2:="Other"]
+ko_results_dm1b[,Subsystem2:=factor(Subsystem2, levels = rev(sub_order))]
+
+setnames(ko_results_dm1b, c("delRxn", paste0("DM1b_", names(ko_results_dm1b)[2:ncol(ko_results_dm1b)])))
+ko_results_all <- merge(ko_results_base, ko_results_dm1b[,c(1:4,8),with=F], by = "delRxn", all = T)
+
+## Fix numeric issue
+ko_results_all[DM1b_grRateKO != 0 & DM1b_grRateKO < 1e-11, DM1b_grRateKO:=0]
+ko_results_all[DM1b_grRateKO==0, DM1b_HasEffect2:="Essential"]
+
+
+#### Top subsystems frmo FVA data
+fva_data <- fread(paste0(flux_dir, "DM1b_fva_fluxes_25559.txt"))
+pfba_solution <- fread(paste0(flux_dir, "DM1b_pfba_fluxes_25559.txt"))
+pfba_solution[,Rxn:=gsub("_[fb]$", "", Var1)]
+pfba_solution[,Dir:=gsub(".*_", "", Var1)]
+pfba_solution[!Dir %in% c("f", "b"), Dir:="f"]
+pfba_solution <- dcast(pfba_solution, Rxn~Dir, value.var = "Var2", fill = 0)
+pfba_solution[,value:=ifelse(f==0 & b != 0, -1*b, f)]
+pfba_solution <- pfba_solution[Rxn != "fluxMeasure"]
+rxn_names <- fread(paste0(flux_dir, "Elenta25559_rxnInfo.txt"))
+fva_data <- merge(fva_data, pfba_solution[,list(Rxn, value)], by.x = "Var1", by.y = "Rxn", all = T)
+fva_data <- merge(fva_data, rxn_names[,list(Var1, Var2)], by = "Var1", all = T)
+setnames(fva_data, c("Rxn", "Subsystem", "FVA_LB", "FVA_UB", "LB", "UB", "pFBA", "RxnName"))
+fva_data[Subsystem == "" | is.na(Subsystem) | Subsystem == "Unassigned" | Subsystem == "Miscellaneous", Subsystem:="Other"]
+fva_data[Subsystem == "Exchange", Subsystem:="Exchange/demand reaction"]
+fva_data[Subsystem == "Urea cycle", Subsystem:="Arginine and proline metabolism"]
+fva_data[grepl("t2r", Rxn)|grepl("t2", Rxn), Subsystem:="Transport, extracellular"]
+subsystem_order <- fva_data[,sum(abs(pFBA) > 0), by=Subsystem][order(V1), Subsystem]
+top_top_sub <- fva_data[pFBA != 0 & !grepl("Exchange", Subsystem) & Subsystem != "", length(Rxn), by=Subsystem][order(V1, decreasing = T)][1:20, Subsystem]
+
+top_kos <- ko_results_all[!grepl("Exchange", Var3) & delRxn != "bio1" & Var3 %in% top_top_sub & !is.na(Var3)]
+
+#### Stats in paper
+ko_results_all[!grepl("Exchange", Var3) & delRxn != "bio1" , prop.table(table(grRatio == 0))]
+ko_results_all[!grepl("Exchange", Var3) & delRxn != "bio1" , prop.table(table(DM1b_grRatio == 0))]
+
+sub_data <- rbind(data.table(top_kos[,list(Var3, HasEffect2)], Setting = "Unconstrained model"), 
+                  data.table(top_kos[,list(Var3, DM1b_HasEffect2)], Setting = "EDM1"), use.names = F)
+
+essential_reactions_count_plot3 <- ggplot(sub_data, aes(x = factor(Var3, levels = subsystem_order), fill = HasEffect2)) +
+  geom_bar(position = "stack", color= "black") + coord_flip() + theme_pubr() + 
+  theme(legend.position = "right", axis.ticks.y = element_blank(), axis.text.y = element_text(size = 9), strip.background = element_blank()) +
+  scale_fill_manual(values  = c("darkblue",  "steelblue1", "gray80"), name = "Reaction KO effect (FBA)") + xlab("") + 
+  scale_y_continuous(expand = c(0,0)) + ylab("Number of reactions") + facet_grid(.~factor(Setting, levels = c("Unconstrained model", "EDM1")))
+
+ggsave(essential_reactions_count_plot3, file = paste0(outdir, "singleReactionKOeffectCounts_SeparateConditions.pdf"), width = 8, height = 4.7)
+
+essential_reactions_count_plot3
+
+################### Comparison with strain conservation
+strain_annot_file <- paste0(flux_dir, "reconstructions/Eggerthella_genomes/Eggerthella_lenta_ATCC25559_35633_241_1.gff")
+protein_ortho_file <- "../../../jbisanz/ElGenomes2019/proteinortho/outs/ID60_COV80_AllStrains.proteinortho.tsv"
+annot_table <- fread(strain_annot_file, skip = 1, header = F, fill = T, sep = "\t")
+annot_table[,Genome:=gsub("\\|.*$", "", V1)]
+annot_table[,GeneID:=gsub("ID=", "", gsub("; .*$", "", V9))]
+
+blast_results <- fread(paste0(flux_dir, "reconstructions/Eggerthella_genomes/ATCC25559_ref2243Genes_blast.txt"))
+rxn_names <- fread(paste0(flux_dir, "Elenta25559_rxnInfo.txt"))
+strain_info <- fread(paste0(flux_dir, "reconstructions/Eggerthella_lenta_2020-5-25/Eggerthella_lenta_ATCC_25559_rxnInfo.txt"))
+strain_info[,Genes:=sapply(AllGenes, strsplit, split = "\\|")]
+strain_genes <- unnest(strain_info[,list(Rxn,Genes)], cols = c(Genes)) %>% data.table()
+strain_genes[!Genes %in% blast_results[,V1]] ## Eggerthella_lenta_ATCC25559.CDS.2056 is the only one missing from blast results - 
+
+## Then with BLAST mapping results, get rid of duplicates
+strain_genes <- merge(strain_genes, blast_results[,list(V1, V2)], by.x = "Genes", by.y = "V1", all.x = T)
+setnames(strain_genes, "V2", "locus_tag")
+strain_genes[,GeneRank:=rank(Genes), by=list(Rxn, locus_tag)]
+strain_genes <- strain_genes[!grepl("_CDS$", Genes)] #Get rid of extra counting
+strain_genes <- unique(strain_genes)
+mapping_table <- fread("../../ElentaGenomeTables/mappingTable_NCBI_2243REF_oldLocusTags.tsv")
+strain_genes <- merge(strain_genes, mapping_table[!is.na(locus_tag),list(locus_tag, Gene)], by = "locus_tag", all.x = T)
+
+## Link to protein ortho analysis of conservation
+proteinortho <- fread(protein_ortho_file)
+proteinortho[,ClustID:=1:nrow(proteinortho)]
+proteinortho <- melt(proteinortho, id.vars = c(names(proteinortho)[1:3], "ClustID"), variable.name = "Genome") %>% filter(value != "*")
+proteinortho <- proteinortho[grepl("Eggerthella_lenta", Genome) & !grepl("MAG", Genome)]
+## Get rid of clonal duplicates
+proteinortho <- proteinortho[!Genome %in% c("Eggerthella_lenta_DSM2243D.faa", "Eggerthella_lenta_22C.faa", "Eggerthella_lenta_16A.faa",
+                                            "Eggerthella_lenta_ATCC25559.faa", "Eggerthella_lenta_UCSF2243.faa")]
+clusts2243 <- proteinortho[value %in% strain_genes[,Gene],list(value, ClustID)]
+num_spec <- proteinortho[,length(unique(Genome)), by=ClustID]
+clusts2243 <- merge(clusts2243, num_spec)
+setnames(clusts2243, c("ClusterID", "Gene", "NumStrains"))
+
+strain_genes <- merge(strain_genes, clusts2243, by = "Gene", all.x = T)
+strain_genes <- merge(strain_genes, ko_results_all[,c(1:4, 8, 10:13)], by.x = "Rxn", by.y = "delRxn", all = T)
+strain_genes <- strain_genes[!is.na(NumStrains) & !is.na(grRatio)]
+strain_genes[,wilcox.test(NumStrains[grRatio < 0.7], NumStrains[grRatio > 0.7])]
+strain_genes[,max(NumStrains)]
+
+nice_violin_plot_nocolor <- ggplot(strain_genes, aes(x = factor(grRatio < 0.7, levels = c("Less than 0.7" = TRUE, "0.7 to 1" = FALSE)), 
+                                                     y = NumStrains/31)) + geom_violin(color = "gray40") + geom_jitter( size = 0.8, height = 0.01, width = 0.2, alpha = 0.7, color = "darkblue") + 
+  scale_x_discrete(labels = c("TRUE" = "Less than 0.7", "FALSE" = "0.7-1"), name = "Max growth rate ratio KO/WT") + 
+  ylab("Fraction of strain genomes with gene") + annotate(geom = "text", x = 2.2, y = 0.8, label = "Wilcoxon\np = 0.001")
+
+ggsave(nice_violin_plot_nocolor, file = paste0(outdir, "MaxGrowthRateKOStrainGeneConservationPlotUpdatedNoColor.pdf"), width = 3.7, height = 3.2)
+
+nice_violin_plot_nocolor
+
+```
+
+
