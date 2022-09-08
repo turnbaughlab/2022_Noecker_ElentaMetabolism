@@ -1062,22 +1062,6 @@ bad_feat2 <- low_level_data[!grepl("L", AcetateGroup) & AreaFrac > 1e6 & NumLabe
 bad_feats <- low_level_data[BadFeat==1,list(CompID, ExLabel, NumLabeledC)][,length(NumLabeledC), by=list(CompID, ExLabel)][V1 > 1]
 bad_feats[,BadFeatAll:=1]
 
-od_data = data.table(read_xlsx(paste0(datadir, "ODdata.xlsx")))
-od_data[,TP9_64:=round(as.numeric(TP9_64), digits = 3)] #fix weirdness
-od_data = melt(od_data, id.var = c("Strain", "AcConc", "Replicate"), variable.name = "TimePoint")
-#od_data[,Time:=as.numeric(gsub("TP[0-9]_", "", TimePoint))]
-setnames(od_data, "AcConc", "AcetateGroup")
-od_data[,AcConc:=gsub("L", "", AcetateGroup)]
-od_data[,Labeled:=ifelse(grepl("L", AcetateGroup), "SIL", "Unlabeled")]
-setnames(od_data, "Strain", "StrainFull")
-od_data[,Strain:=ifelse(StrainFull=="Valencia", "Val", StrainFull)]
-od_data[,Strain:=ifelse(Strain=="AB8n2", "AB8", Strain)]
-od_data[,TimePoint:=gsub("_[0-9.]+$", "", TimePoint)]
-od_data[,TimePoint:=paste0("TP", as.numeric(gsub("TP", "", TimePoint))-1)]
-od_data[,Replicate:=as.character(Replicate)]
-setnames(od_data, "value", "OD600")
-
-
 most_signal <- low_level_data[TimePoint=="TP8" & Strain != "c",sum(AreaFrac*NumLabeledC), 
                               by = list(Strain, AcetateGroup, TimePoint, Time, CompID)][,max(V1), by=CompID][order(V1, decreasing = T)][1:7, CompID]
 
