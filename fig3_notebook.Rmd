@@ -380,6 +380,10 @@ strain_genes[!is.na(locus_tag),table(pFBAFlux2 != 0, meanBaselineTPM  > 20)]
 strain_genes[!is.na(locus_tag), prop.table(table(pFBAFlux2 != 0, meanBaselineTPM > median(meanBaselineTPM)),1)]
 strain_genes[!is.na(locus_tag), prop.table(table(pFBAFlux2 != 0, meanBaselineTPM > quantile(meanBaselineTPM, 0.25)),1)]
 
+strain_genes[!is.na(locus_tag), fisher.test(table(pFBAFlux2 != 0, meanBaselineTPM > median(meanBaselineTPM)))]
+strain_genes[!is.na(locus_tag), fisher.test(table(pFBAFlux2 != 0, meanBaselineTPM > quantile(meanBaselineTPM, 0.25)))]
+
+
 
 ```
 

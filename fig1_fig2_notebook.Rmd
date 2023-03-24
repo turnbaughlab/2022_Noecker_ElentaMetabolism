@@ -40,7 +40,7 @@ library(KEGGREST)
 
 theme_set(theme_classic2())
 datadir <- ""
-outdir <- "figure1/"
+outdir <- "figure1_filterTest/"
 dir.create(outdir)
 
 sessionInfo()
@@ -48,6 +48,10 @@ sessionInfo()
 ####### Read in processed datasets
 processed_data <- fread("processedDatasets/timecourse_all_data.csv")
 summary_data <- fread("processedDatasets/timecourse_mean_summaries.csv")
+
+processed_data <- fread("processedDatasets/time_course_all_data_clustered_features_test.csv")
+summary_data <- fread("processedDatasets/timecourse_mean_summaries_clustered_features_test.csv")
+summary_data <- summary_data[!IDUniq %in% processed_data[Duplicate==1, unique(IDUniq)]]
 #growth_file<-paste0(datadir, "TimeCourse_take2_2020-8-17/ODdata.xlsx")
 
 #### Add in OD/growth data
@@ -130,7 +134,15 @@ present_in_ctrls_summary_plot <- ggplot(summary_data[Present == 1 & !is.na(FDRCo
 
 ggsave(present_in_ctrls_summary_plot, file = paste0(outdir, "presentAbsentCtrlsPlotUpdated.pdf"), width = 6, height = 3.6)
 
+
 present_in_ctrls_summary_plot
+
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243", fisher.test(table(MSI != "", PresentInCtrls2 == 1 & Present == 1))]
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243", fisher.test(table(MSI == 1, PresentInCtrls2 == 1 & Present == 1))]
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243", fisher.test(table(MSI == 2, PresentInCtrls2 == 1 & Present == 1))]
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243", fisher.test(table(MSI == 3, PresentInCtrls2 == 1 & Present == 1))]
+summary_data[!is.na(p.value) & TimePoint==6 & AcConc==1 & Strain == "2243", fisher.test(table(MSI == 4, PresentInCtrls2 == 1 & Present == 1))]
+
 
 ############## Diff abundance plot
 summary_data[,DiffAbund:=case_when(
@@ -149,7 +161,6 @@ diff_abund_summary_plot
 
 diff_abund_mets <- summary_data[TimePoint==6 & AcConc==1 & Strain == "2243" & !is.na(p.value) & abs(log2FC_adj) > 0.75 & FDRCorrect < 0.1, IDUniq]
 
-
 ############################ Heatmap
 summary_data[AcConc==1 & Strain == "2243" ,logZscore:=scale(meanLog10Value), by = IDUniq]
 mean_data_wide <- dcast(summary_data[AcConc==1 & Strain == "2243" & IDUniq %in% diff_abund_mets], IDUniq+MetName+MSI~Time, value.var = "logZscore")
@@ -164,7 +175,6 @@ dev.off()
 Heatmap(as.matrix(mean_data_wide[,4:ncol(mean_data_wide), with=F]), cluster_columns = F, 
         row_labels = row_labs, row_names_gp = gpar(fontsize= 8), col = c(brewer.pal(3, "Set1")[2], "white", brewer.pal(3, "Set1")[1]))
 
-diff_abund_id_mets<- summary_data[TimePoint==6 & AcConc==1 & Strain == "2243" & abs(log2FC_adj) > 1 & FDRCorrect < 0.1 & !grepl("known", MetName), IDUniq]
 
 ```
 
@@ -561,7 +571,7 @@ parameter_hists2
 
 ### Diff abund tests
 
-base_models_sub <- base_models[BadFit==0 & Strain == "2243" & Experiment %in% model_fits_compare_good2b[,Experiment]]
+base_models_sub <- base_models[BadFit==0 & Strain == "2243" & Experiment %in% model_fits_compare_good2b[,Experiment] & !Experiment %in% bad_base]
 unique_loos <- model_fits_compare_good2[Experiment != "VitaminLOOs2",unique(LOO)]
 unique_loo_r_pvals <- sapply(unique_loos, function(x){
   exp1 <- model_fits_compare_good2[LOO==x]
@@ -592,7 +602,10 @@ diff_results[,r_padj:=p.adjust(r, method = "BH")]
 diff_results[,k_padj:=p.adjust(k, method = "BH")]
 diff_results[,tmid_padj:=p.adjust(tmid, method = "BH")]
 diff_results[,auc_padj:=p.adjust(auc, method = "BH")]
-diff_results[,table(r_padj < 0.1|k_padj < 0.1|tmid_padj < 0.1|auc_padj < 0.1)]
+diff_results[,table(r_padj < 0.2|k_padj < 0.2|tmid_padj < 0.2|auc_padj < 0.2)]
+diff_results[r_padj < 0.2|k_padj < 0.2|tmid_padj < 0.2|auc_padj < 0.2]
+diff_results[r_padj < 0.1]
+
 fwrite(diff_results, file = paste0(outdir, "loo_diffAbundWilcoxonGrowthParamsVsBase.csv"))
 
 #Summary by compound
@@ -651,6 +664,10 @@ ggsave(facet_effect_plot, file = paste0(outdir, "allGrowthCurveLOOs.pdf"), width
 fwrite(average_dat3, file = paste0(outdir, "finalAvgLOOgrowthdata.csv"))
 
 facet_effect_plot
+
+#### Presentation plots
+ggplot(average_dat3[LOOGroup=="Arg" & ColorCol=="EDM1"], aes(x = time, ymin = V1-V2, ymax = V1+V2, group = Condition2), fill = "gray")  + geom_ribbon(alpha = 0.4) + geom_line(aes(y = V1), color = "gray") + ylab("E. lenta abundance") + xlab("Time (hr)")+ theme_bw()+ theme(strip.background= element_blank(), panel.grid = element_blank())
+ggplot(average_dat3[LOOGroup %in% c("Arg", "Acetate")], aes(x = time, ymin = V1-V2, ymax = V1+V2, group = Condition2, fill = ifelse(ColorCol == "EDM1", T, F)))  + geom_ribbon(alpha = 0.4) + geom_line(aes(y = V1, color = ifelse(ColorCol == "EDM1", T, F))) + ylab("E. lenta abundance") + xlab("Time (hr)")+ scale_color_manual(values = c("#FB8072", "grey50"), name = "Removed compound class") + scale_fill_manual(values = c("#FB8072", "grey50"), name = "Removed compound class") + facet_wrap(~factor(ifelse(LOOGroup=="Arg", "Arginine", "Acetate"), levels=c("Arginine", "Acetate"))) + theme_bw()+ theme(strip.background= element_blank(), panel.grid = element_blank())
 
 
 all_growth_data <- corrected_data_all[(Strain %in% c("2243", "c") & (Experiment != "VitaminLOOs2" & (grepl("LOO", Experiment))|
@@ -1043,7 +1060,7 @@ fwrite(tab_save[order(Strain, CompID)], file = paste0(outdir, "intracellular_ac_
 rm(list = ls())
 ```
 
-# Figure 2/Figure S4 - acetate SIRM experiment, intracellular data
+# Figure 2/Figure S4 - acetate SIRM experiment, extracellular data
 
 ```{r fig2_sil_ex}
 ########## Extracellular
@@ -1088,6 +1105,30 @@ top_comps2ex_otherspec <- summary_tab_ex[Strain %in% c("AB8", "Val") & AcetateGr
 top_comps2ex_otherspec <- top_comps2ex_otherspec[!top_comps2ex_otherspec %in% bad_comps_ex]
 length(top_comps2ex_otherspec[!top_comps2ex_otherspec %in% top_comps2ex])
 
+### Compare with unlabeled data
+comps_to_compare <- summary_tab_ex[Labeled > 50000 & Labeled/Unlabeled > 0.1, sort(unique(CompID))]
+processed_data <- fread("processedDatasets/timecourse_all_data.csv")
+summary_data <- fread("processedDatasets/timecourse_mean_summaries.csv")
+growth_file = "../TimeCourse_take2_2020-8-17/ODdata.xlsx"
+time_pts = read_xlsx(growth_file, sheet = 2)
+time_pts = data.table(time_pts %>% mutate(TimePoint = as.numeric(gsub("TP", "", TimePoint))))
+mean_data2 = processed_data[Sample != "c_10_TP1_1_R1",list(meanValue = mean(value), SD_Value = sd(value)), by=list(Time, TimePoint, AcConc, Strain, IonMode, IDUniq, AlignmentID, MetName, MSI)]
+mean_data2[,Strain:=factor(Strain, levels = c("2243", "AB8", "Val", "Ctrl"))]
+
+## Which mets are significantly diff with acetate 0 vs 1?
+load(paste0(outdir, "santaR_acetate0v1results.rda"))
+all_pvals <- sapply(test1, function(x){ return(x$general$pval.dist)})
+
+santar_results <- data.table(IDUniq = gsub("^X", "", names(test1)), PVal = all_pvals)
+santar_summary <- santaR_auto_summary(test1)
+santar_summary_ac0v1 <- data.table(rownames_to_column(santar_summary$pval.all, "IDUniq"))
+santar_summary_ac0v1[,IDUniq:=gsub("^X", "", IDUniq)]
+setnames(santar_summary_ac0v1, names(santar_summary_ac0v1)[2:6], paste0("Ac0v1_", names(santar_summary_ac0v1)[2:6]))
+santar_summary_ac0v1 <- merge(santar_summary_ac0v1, unique(processed_data[,list(IDUniq, MetName)]), by = "IDUniq", all.x = T)
+santar_sub <- santar_summary_ac0v1[Ac0v1_dist_BH < 0.25 & !grepl("known", MetName)]
+table(sort(tolower(gsub("_[A-Za-z]+", "", gsub("-l-", "", comps_to_compare)))) %in% tolower(santar_sub[,MetName]))
+
+
 # Get rid of duplicates
 top_comps2ex_sub <- top_comps2ex[!top_comps2ex %in% c("ACETYL ARGININE_Neg", "D-(-)-Glutamine_Neg", 
                                                       "L-Glutamic acid_Neg", "N-Acetylornithine_Neg",
@@ -1115,6 +1156,7 @@ extracellular_plot5 <- ggplot(summary_tab2ex[!CompID %in% dup_comps & (CompID %i
 ggsave(extracellular_plot5, file = paste0(outdir, "extracellular_SIL_summaryIDcomps_allStrains.pdf"), width= 8.5, height = 5)
 
 extracellular_plot5 
+
 
 ##### Extracellular compound summary (supp table)
 tab_save <- summary_tab2ex[(CompID %in% top_comps2ex_sub|CompID %in% top_comps2ex_otherspec) & Strain != "c" & TimePoint == "TP8" & AcetateGroup %in% c("1L", "10L")][V1 != 0]

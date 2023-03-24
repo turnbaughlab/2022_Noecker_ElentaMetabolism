@@ -149,7 +149,7 @@ rm(list = ls())
 
 ########################## Time course
 ids_keep <- c("IDUniq", "AlignmentID", "AvgMZ", "AvgRt", "Adduct", "MSI", "MetName", "Formula", "INCHIKEY", "MS/MS spectrum", "IonMode", "BK")
-growth_file = "TimeCourse_take2_2020-8-17/ODdata.xlsx"
+growth_file = "../TimeCourse_take2_2020-8-17/ODdata.xlsx"
 growth_data = read_xlsx(growth_file, sheet = 1)
 time_pts = read_xlsx(growth_file, sheet = 2)
 time_pts = data.table(time_pts %>% mutate(TimePoint = as.numeric(gsub("TP", "", TimePoint))))
@@ -162,9 +162,10 @@ growth2[Time==26.5, Time:=26]
 growth2[Time==30.5, Time:=30]
 mean_growth2 = growth2[, .(meanOD =mean(OD600), sdOD = sd(OD600)), by=list(Strain, AcConc, Time)]
 time_course2 = fread("processedDatasets/timeCourse2_allData.txt")
-ms2_dat <- data.table(read_xlsx("DataWithMS2/Neg Combined for Cecilia.xlsx", skip = 4, sheet = "Timecourse"))
+
+ms2_dat <- data.table(read_xlsx("../DataWithMS2/Neg Combined for Cecilia.xlsx", skip = 4, sheet = "Timecourse"))
 ms2_dat <- ms2_dat[,list(`Alignment ID`, `Adduct type`, `Formula`, `MS/MS spectrum`, BK)]
-ms2_dat2 <- data.table(read_xlsx("DataWithMS2/Pos Combined for Cecilia.xlsx", skip = 4, sheet = "TimeCourse"))
+ms2_dat2 <- data.table(read_xlsx("../DataWithMS2/Pos Combined for Cecilia.xlsx", skip = 4, sheet = "TimeCourse"))
 ms2_dat2 <- ms2_dat2[,list(`Alignment ID`, `Adduct type`, `Formula`, `MS/MS spectrum`, BK)]
 ms2_dat[,IonMode:="Neg"]
 ms2_dat2[,IonMode:="Pos"]
@@ -224,6 +225,10 @@ exclude_feats <- sapply(1:nrow(test_join), function(x){
     }})
 
 time_course2[,Duplicate:=ifelse(IDUniq %in% exclude_feats, 1, 0)]
+
+## Alternate version with filtered features
+#time_course2 <- fread("processedDatasets/time_course_all_data_clustered_features_test.csv")
+
 # Sample != "c_10_TP1_1_R1"
 mean_data <- time_course2[,list(mean(value), sd(value), min(value), max(value), median(value),
                                mean(log10value), sd(log10value), min(log10value),
@@ -285,15 +290,15 @@ mean_data <- merge(mean_data, diff_test_results, by = c("IDUniq", "Strain", "AcC
 #mean_data <- mean_data[!is.na(Strain)]
 
 ##### Add GNPS annot
-molnet_data_pos <- fread("DataWithMS2/GNPS_results/TimeCourse_Pos/ProteoSAFe-MOLNETENHANCER-56259b0f-download_data/DB_result/50d72a7f29974149976a7f6a976b66f4.tsv")
+molnet_data_pos <- fread("../DataWithMS2/GNPS_results/TimeCourse_Pos/ProteoSAFe-MOLNETENHANCER-56259b0f-download_data/DB_result/50d72a7f29974149976a7f6a976b66f4.tsv")
 molnet_data_pos[,AlignmentID:=as.numeric(gsub("spectra_filtered/specs_ms.mgf","", FileScanUniqueID ))]
-molnet_class_data <- fread("DataWithMS2/GNPS_results/TimeCourse_Pos/ProteoSAFe-MOLNETENHANCER-56259b0f-download_data/output_network/ClassyFireResults_Network.txt")
+molnet_class_data <- fread("../DataWithMS2/GNPS_results/TimeCourse_Pos/ProteoSAFe-MOLNETENHANCER-56259b0f-download_data/output_network/ClassyFireResults_Network.txt")
 molnet_data_pos <- merge(molnet_data_pos, molnet_class_data, by.x = "AlignmentID", by.y = "cluster index", all = T)
 
-molnet_data_neg <- fread("DataWithMS2/GNPS_results/TimeCourse_Neg/ProteoSAFe-MOLNETENHANCER-c21d49a4-download_data/DB_result/ec6e29b73d464a8b884d0b972207aa4b.tsv")
+molnet_data_neg <- fread("../DataWithMS2/GNPS_results/TimeCourse_Neg/ProteoSAFe-MOLNETENHANCER-c21d49a4-download_data/DB_result/ec6e29b73d464a8b884d0b972207aa4b.tsv")
 molnet_data_neg[,AlignmentID:=as.numeric(gsub("spectra_filtered/specs_ms.mgf","", FileScanUniqueID ))]
-molnet_class_data <- fread("DataWithMS2/GNPS_results/TimeCourse_Neg/ProteoSAFe-MOLNETENHANCER-c21d49a4-download_data/output_network/ClassyFireResults_Network.txt")
-neg_molnet3 <- fread("DataWithMS2/GNPS_results/TimeCourse_Neg/ProteoSAFe-MOLNETENHANCER-c21d49a4-download_data/clusterinfo_summary/ee907712595a43b0933ead4b685e833e.tsv")
+molnet_class_data <- fread("../DataWithMS2/GNPS_results/TimeCourse_Neg/ProteoSAFe-MOLNETENHANCER-c21d49a4-download_data/output_network/ClassyFireResults_Network.txt")
+neg_molnet3 <- fread("../DataWithMS2/GNPS_results/TimeCourse_Neg/ProteoSAFe-MOLNETENHANCER-c21d49a4-download_data/clusterinfo_summary/ee907712595a43b0933ead4b685e833e.tsv")
 molnet_data_neg <- merge(molnet_data_neg, molnet_class_data, by.x = "AlignmentID", by.y = "cluster index", all = T)
 
 molnet_data_pos[,IonMode:="Pos"]
@@ -302,7 +307,11 @@ molnet_data <- rbind(molnet_data_pos, molnet_data_neg, fill = T)
 mean_data <- merge(mean_data, molnet_data[,list(AlignmentID, IonMode, Compound_Name, CF_kingdom, CF_superclass, CF_class, CF_subclass, CF_Dparent)], by = c("IonMode", "AlignmentID"), all.x = T)
 time_course2 <- merge(time_course2, molnet_data[,list(AlignmentID, IonMode, Compound_Name, CF_kingdom, CF_superclass, CF_class, CF_subclass, CF_Dparent)], by = c("IonMode", "AlignmentID"), all.x = T)
 
+#Alternative version
+fwrite(mean_data, file = "processedDatasets/timecourse_mean_summaries_clustered_features_test.csv")
+
 fwrite(mean_data, file = "processedDatasets/finalAllDatasets/timecourse_mean_summaries.csv")
+
 fwrite(time_course2, file = "processedDatasets/finalAllDatasets/timecourse_all_data.csv")
 
 inchikeys_all <- mean_data[,sort(unique(INCHIKEY))]
@@ -1041,6 +1050,7 @@ for(j in 1:nrow(inchikeys_all)){
   inchikeys_all[j, HMDB:=cts_convert(INCHIKEY, from = "InChiKey", to = "human metabolome database", match = "first")]
 }
 kegg_class <- assign_hierarchy(inchikeys_all, keep_unknowns = T, identifier = "KEGG")
+kegg_class <- merge(kegg_class, inchikeys_all[,list(INCHIKEY, HMDB)], by = "INCHIKEY", all.x = T)
 fwrite(kegg_class, file = "processedDatasets/finalAllDatasets/inchikeys_kegg_all.csv")
 
 # hmdb_categories <- fread("metaboanalystR_master_compound_db.tsv")

@@ -148,7 +148,13 @@ combined_volc
 met_data_means[!is.na(FDRCorrect),sum(FDRCorrect < 0.2), by = IDUniq][,table(V1 > 0)]
 met_data_means[!is.na(FDRCorrect),sum(FDRCorrect < 0.2), by = list(IDUniq, Site)][,prop.table(table(Site, V1 > 0), 1)]
 
+met_data_means[!is.na(FDRCorrect),sum(FDRCorrect < 0.1), by = IDUniq][,prop.table(table(V1 > 0))]
+
+met_data_means[!is.na(FDRCorrect),sum(FDRCorrect < 0.1), by = list(IDUniq, Site)][,prop.table(table(Site, V1 > 0), 1)]
+
 serum_met_data_means[!is.na(FDRCorrect), sum(FDRCorrect < 0.2), by = IDUniq][,table(V1 > 0)]
+serum_met_data_means[!is.na(FDRCorrect), sum(FDRCorrect < 0.1), by = IDUniq][,table(V1 > 0)]
+
 serum_met_data_means[FDRCorrect < 0.2, list(IDUniq, CF_superclass)]
 
 
@@ -236,6 +242,8 @@ ggsave(aa_plot, file = paste0(outdir, "amino_acids_plot.pdf"), width = 5.5, heig
 
 aa_plot
 
+
+
 ```
 
 # Linking features across datasets
@@ -276,7 +284,7 @@ intest_features_tab <- features_tab[grepl("Intestinal Contents", IDUniq) & IDUni
 
 ## Add merged IDs to mouse dataset
 met_data_means[,IDUniq2:=paste0("Intestinal Contents_", AlignmentID, "_", ifelse(grepl("ositive", IDUniq), "Pos", "Neg"))]
-met_data_means <- merge(met_data_means, intest_features_tab[!is.na(NewID2), list(IDUniq, NewID2)], by.x = "IDUniq2", by.y = "IDUniq", all.x = T)
+met_data_means <- merge(met_data_means, intest_features_tab[!is.na(NewID2), list(IDUniq, NewID2, InVitro)], by.x = "IDUniq2", by.y = "IDUniq", all.x = T)
 
 met_data_means <- met_data_means[IDUniq2 %in% good_intest_features]
 
@@ -285,9 +293,18 @@ count_plot_serum <- ggplot(features_tab[(grepl("Serum", IDUniq)|grepl("Intest", 
   scale_fill_brewer(palette = "Paired", name  ="") + ylab("Number of features") + coord_flip() + 
   facet_wrap(~Dataset, scales = "free_x") + theme(strip.background = element_blank())
 
+count_plot_serum_id <- ggplot(features_tab[(grepl("Serum", IDUniq)|grepl("Intest", IDUniq)) & IDUniq %in% c(good_intest_features, good_serum_features) & MSI != ""], 
+                           aes(x = IonMode, fill = factor(InVitro))) + geom_bar(color = "black") + 
+  scale_fill_brewer(palette = "Paired", name  ="") + ylab("Number of features") + coord_flip() + 
+  facet_wrap(~Dataset, scales = "free_x") + theme(strip.background = element_blank())
+
 ggsave(count_plot_serum, file = paste0(outdir, "intestinal_serum_features_count.pdf"), width = 5, height = 1.8)
 
-count_plot_serum
+count_plot_serum_all <- count_plot_serum + ylab("") + ggtitle("All features") + count_plot_serum_id + ggtitle("Identified features") + plot_layout(nrow = 2, guides = "collect")
+
+ggsave(count_plot_serum_all, file = paste0(outdir, "intestinal_serum_features_count_id.pdf"), width = 5.5, height = 3.7)
+count_plot_serum_all
+
 
 ## Combine mouse data with strain and time series in vitro data
 time_series_results <- fread("processedDatasets/timecourse_mean_summaries.csv")
@@ -468,6 +485,32 @@ strain_effect_comparison_all <- strain_effect_comparison_plot  + serum_plot + gu
 ggsave(strain_effect_comparison_all, file = paste0(outdir, "combined_strainCompare_simplifiedColors.pdf"), height = 6.2, width = 10)
 
 strain_effect_comparison_all
+
+### Supp data
+mets_save2243 <- met_data_means[Strain =="Eggerthella_lenta_UCSF2243" & InVitro != "Not detected" & FDRCorrect < 0.2 & !is.na(FDRCorrect) & abs(EstimateLog2Scale) > 1, unique(NewID2)]
+
+met_data2243 <- met_data_means[NewID2 %in% mets_save2243 & !is.na(NewID2) & !is.na(FDRCorrect) & Strain =="Eggerthella_lenta_UCSF2243", list(NewID2, IonMode, AvgMZ, AvgRt, Adduct, MSI, MetName, Formula, INCHIKEY, Strain, Site, EstimateLog2Scale, FDRCorrect, TimeSeries_log2FC, TimeSeries_FDRCorrect, Strains_log2FC, Strains_FDRCorrect, SharedShiftTimeSeries, SharedShiftStrain)]
+setnames(met_data2243, "FDRCorrect", "PValueAdj")
+met_data2243 <- dcast(met_data2243, NewID2+IonMode+AvgMZ+AvgRt+Adduct+MSI+MetName+Formula+INCHIKEY+Strain+TimeSeries_log2FC+TimeSeries_FDRCorrect+Strains_log2FC+Strains_FDRCorrect~Site, value.var = c("EstimateLog2Scale", "PValueAdj", "SharedShiftTimeSeries", "SharedShiftStrain"))
+
+mets_save_ab <- met_data_means[Strain =="Eggerthella_lenta_AB12n2" & !is.na(NewID2) & FDRCorrect < 0.2 & !is.na(FDRCorrect) & abs(EstimateLog2Scale) > 1, unique(NewID2)]
+
+met_data_ab <- met_data_means[NewID2 %in% mets_save_ab & !is.na(NewID2) & InVitro != "Not detected" & !is.na(FDRCorrect) & Strain =="Eggerthella_lenta_AB12n2", list(NewID2, IonMode, AvgMZ, AvgRt, Adduct, MSI, MetName, Formula, INCHIKEY, Strain, Site, EstimateLog2Scale, FDRCorrect, Strains_log2FC, Strains_FDRCorrect, SharedShiftStrain)]
+setnames(met_data_ab, "FDRCorrect", "PValueAdj")
+met_data_ab <- dcast(met_data_ab, NewID2+IonMode+AvgMZ+AvgRt+Adduct+MSI+MetName+Formula+INCHIKEY+Strain+Strains_log2FC+Strains_FDRCorrect~Site, value.var = c("EstimateLog2Scale", "PValueAdj", "SharedShiftStrain"))
+
+mets_save_dsm <- met_data_means[Strain =="Eggerthella_lenta_DSM15644" & InVitro != "Not detected" & !is.na(NewID2) & FDRCorrect < 0.2 & !is.na(FDRCorrect) & abs(EstimateLog2Scale) > 1, unique(NewID2)]
+
+met_data_dsm <- met_data_means[NewID2 %in% mets_save_dsm & !is.na(NewID2) & !is.na(FDRCorrect) & Strain =="Eggerthella_lenta_DSM15644", list(NewID2, IonMode, AvgMZ, AvgRt, Adduct, MSI, MetName, Formula, INCHIKEY, Strain, Site, EstimateLog2Scale, FDRCorrect, Strains_log2FC, Strains_FDRCorrect, SharedShiftStrain)]
+setnames(met_data_dsm, "FDRCorrect", "PValueAdj")
+met_data_dsm <- dcast(met_data_dsm, NewID2+IonMode+AvgMZ+AvgRt+Adduct+MSI+MetName+Formula+INCHIKEY+Strain+Strains_log2FC+Strains_FDRCorrect~Site, value.var = c("EstimateLog2Scale", "PValueAdj", "SharedShiftStrain"))
+
+fwrite(met_data2243[order(MSI != "", EstimateLog2Scale_Cecum, decreasing = T)][,c(10, 1:9, 11:14, 15, 18, 21, 24, 16, 19, 22, 25, 17, 20, 23, 26)], paste0(outdir, "met_data_2243.txt"), sep = "\t")
+
+fwrite(met_data_ab[order(MSI != "", EstimateLog2Scale_Cecum, decreasing = T)][,c(10, 1:9, 11:12, 13, 16, 19, 14, 17, 20, 15, 18, 21)], paste0(outdir, "met_data_ab12.txt"), sep = "\t")
+
+fwrite(met_data_dsm[order(MSI != "", EstimateLog2Scale_Cecum, decreasing = T)][,c(10, 1:9, 11:12, 13, 16, 19, 14, 17, 20, 15, 18, 21)], paste0(outdir, "met_data_dsm15644.txt"), sep = "\t")
+
 ```
 
 # Top shifted compounds
@@ -500,15 +543,16 @@ top_prods <- rank_compound_tab[CompRankProdUseID < 9 & grepl("2243", Strain)]
 top_used <- rank_compound_tab[CompRankProdUseID < 9 & grepl("2243", Strain) & V1 < 0]
 
 ### Simplified version (poster)
-indiv_comp_plot_simple <- ggplot(met_data_means[MetName2 %in% top_used[,MetName2] & grepl("2243", Strain) & 
+indiv_comp_plot_simple <- ggplot(met_data_means[(MetName2 %in% top_used[,MetName2]|MetName2 %in% top_prods[,MetName2]) & grepl("2243", Strain) & 
                                                   !is.na(Strain) & !is.na(Site) & MetName != "Unknown" ], 
                                  aes(x = factor(MetName2, levels = rev(met_order)), y = EstimateLog2Scale)) + 
   geom_errorbar(width = 0, aes(ymin = EstimateLog2Scale - log2(10^(`Std. Error`)), ymax = EstimateLog2Scale + 
                                  log2(10^(`Std. Error`)))) + geom_point(aes(fill = MetName2, shape = Site), size = 3) + 
   coord_flip() + geom_hline(yintercept = 0, linetype = 2) + scale_x_discrete(labels = function(e){ gsub("[0-9]+[A-Z][a-z]+$", "", e)}, name = "") + 
-  ylab("log2 fold change\nE. lenta DSM2243 vs GF")  + scale_shape_manual(values = 21:23) + scale_fill_brewer(palette = "Set3") + guides(fill = "none") 
+  ylab("log2 fold change\nE. lenta DSM2243 vs GF")  + scale_shape_manual(values = 21:23) + scale_fill_manual(values = c(brewer.pal(12, "Set3"), brewer.pal(8, "Set2"))) + guides(fill = "none") +
+  theme(axis.text = element_text(color = "black"))
 
-ggsave(indiv_comp_plot_simple, file = paste0(outdir, "top_identified_mets2243_poster.pdf"), width = 5, height = 3.3)
+ggsave(indiv_comp_plot_simple, file = paste0(outdir, "top_identified_mets2243_poster.pdf"), width = 5.5, height = 4)
 
 indiv_comp_plot_simple
 
