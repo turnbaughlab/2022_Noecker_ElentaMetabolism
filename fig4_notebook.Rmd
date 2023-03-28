@@ -97,6 +97,49 @@ ggsave(type_strain_compare_volc_nolab, file = paste0(outdir, "type_strain_volcan
 
 type_strain_compare_volc_nolab
 
+source_data <- met_data[Duplicate == 0 & IDUniq %in% met_data_means[,unique(IDUniq)],list(IDUniq, AlignmentID, IonMode, AvgRt, AvgMZ, MetName, MSI, INCHIKEY, SampleID, Name2, SampleType, CF_superclass, value, log10value)]
+source_data <- merge(source_data, met_data_means[,list(IDUniq, Name2, Outcome, Superclass2, Strain2, NumStrainsTotalProd=Prod, NumStrainsTotalUse=Use, StrainVariableType)], by = c("IDUniq", "Name2"), all.x = T)
+fig4d_feats <- c("133.09665_116.07023_9.621_9.62_Positive", "220.11754999999999_3.4580000000000002_Positive", "187.0368_6.7880000000000003_Negative", "189.03423000000001_6.7839999999999998_Negative")
+source_data[,InFigure4D:=ifelse(IDUniq %in% fig4d_feats, 1, 0)]
+
+## Combine with location data
+phenotype_data <- read_xlsx("./../Bisanz2020_TableS1_ElGenomes.xlsx", skip = 1) %>% data.table()
+phenotype_data[,`Genome ID`:=case_when(
+    `Genome ID` == "Eggerthella_lenta_DIAB165" ~ "Eggerthella_lenta_RJX1626",
+    `Genome ID` == "Eggerthella_lenta_DIAB223" ~ "Eggerthella_lenta_RJX1627",
+    TRUE~`Genome ID`
+  )]
+phenotype_data <- phenotype_data[`Genome ID` %in% met_data_means[,unique(Name2)]]
+phenotype_data <- phenotype_data[order(`Genome ID`)]
+
+phenotype_data[,HealthCat:=ifelse(`Host health` %in% c("Healthy", "Healthy (Infant)"), "Healthy", "Other")]
+phenotype_data[is.na(`Host health`), HealthCat:=NA]
+phenotype_data[,HealthCat2:=case_when(
+  HealthCat=="Healthy" ~ "Healthy",
+  is.na(`Host health`)|`Host health`=="ASD" ~ "Unknown/other",
+  `Host health` %in% c("Abdominal Wound", "Bacteremia", "Ear infections (Infant)") ~ "Infection",
+  `Host health` %in% c("Crohn's", "Ulcerative colitis") ~ "IBD",
+  TRUE ~ `Host health`
+)]
+phenotype_data[,Country:=gsub(": .*", "", `Isolation location`)]
+phenotype_data[,Country2:=ifelse(Country %in% c("Finland", "France", "Germany", "Russia", "Spain"), "Europe", Country)]
+phenotype_data[,IsolationSource2:=case_when(
+  grepl("Colon", `Isolation source`) ~ "ColonBiopsy",
+  `Isolation source` %in% c("Blood", "Abdominal Wound") ~ "Infection",
+  TRUE ~ `Isolation source`
+)]
+
+#Remove clonal isolates
+phenotype_data2 <- phenotype_data[!`Genome ID` %in% c("Eggerthella_lenta_DSM2243D", "Eggerthella_lenta_ATCC25559")]
+phenotype_data2[,Country3:=ifelse(Country2 %in% c("Canada", "USA"), "North America", "Europe")]
+phenotype_data2[,HealthCat3:=case_when(
+  HealthCat2 %in% c("Cancer", "IBD")|`Host health`=="ASD" ~ "Chronic",
+  TRUE~HealthCat2)]
+
+source_data <- merge(source_data, phenotype_data2[,list(`Genome ID`, Country, Country2, IsolationSource=IsolationSource2, HealthCat=HealthCat3)], by.x = "Name2", by.y = "Genome ID", all.x = T)
+fwrite(source_data[,list(IDUniq, AlignmentID, IonMode, AvgRt, AvgMZ, MetName, MSI, INCHIKEY, Superclass2, SampleID, Name2, Strain2, SampleType, Country, Country2, IsolationSource, HealthCat, value, log10value, Outcome, NumStrainsTotalProd, NumStrainsTotalUse, StrainVariableType, InFigure4D)], file = "figure_source_data/figure4ACD_S8BC_processedStrainData.tsv")
+
+
 ```
 
 # PCA and loadings and distribution of prod/use
@@ -229,6 +272,9 @@ gene_dist_tab <- as.matrix(gene_dist) %>% as.data.frame() %>%
   melt(id.var = "SampleID", variable.factor = F)
 phylop_dists_compare <- merge(phylop_dists_compare, gene_dist_tab, by = c("SampleID", "variable"))  
 
+setnames(phylop_dists_compare, c("Strain1", "Strain2", "MetabolomicsDistance", "PhylogeneticDistance", "GenePresAbsDistance"))
+fwrite(phylop_dists_compare, file = "figure_source_data/figure4B_procrustes_distances.tsv", quote=F, row.names = F, sep = "\t")
+
 #Remove sinensis
 met_pca <- prcomp(t(as.matrix(met_means_wide[,2:(ncol(met_means_wide)-1)])))
 gene_pca <- prcomp(t(as.matrix(pres_abs[,2:(ncol(pres_abs)-1)])), center = F, scale = F)
@@ -309,60 +355,6 @@ phenotype_data2[,HealthCat3:=case_when(
   TRUE~HealthCat2)]
 met_pca2 <- prcomp(t(as.matrix(met_means_wide[,names(met_means_wide) %in% phenotype_data2[,`Genome ID`], with = F])))
 
-test1 <- manova(met_pca2$x[,1:8]~phenotype_data2[,`Host health`])
-summary(test1)
-
-test1 <- manova(met_pca2$x[,1:4]~phenotype_data2[,`Host health`])
-summary(test1)
-
-test2 <- manova(met_pca2$x[,1:4]~phenotype_data2[,HealthCat])
-summary(test2)
-
-test2 <- manova(met_pca2$x[,1:8]~phenotype_data2[,HealthCat])
-summary(test2)
-
-test2a <- manova(met_pca2$x[,1:4]~phenotype_data2[,HealthCat2])
-summary(test2a)
-
-test2a <- manova(met_pca2$x[,1:8]~phenotype_data2[,HealthCat2])
-summary(test2a)
-
-test2a <- manova(met_pca2$x[,1:8]~phenotype_data2[,HealthCat3])
-summary(test2a)
-
-
-test3 <- manova(met_pca2$x[,1:8]~phenotype_data2[, Country2])
-summary(test3)
-
-test4 <- manova(met_pca2$x[,1:4]~phenotype_data2[, Country2])
-summary(test4)
-
-test5 <- manova(met_pca2$x[,1:8]~phenotype_data2[, Country2]+phenotype_data2[, HealthCat])
-summary(test5)
-
-test5 <- manova(met_pca2$x[,1:8]~phenotype_data2[, Country2]+phenotype_data2[, HealthCat2])
-summary(test5)
-
-test5 <- manova(met_pca2$x[,1:4]~phenotype_data2[, Country2]+phenotype_data2[, HealthCat])
-summary(test5)
-
-test5 <- manova(met_pca2$x[,1:4]~phenotype_data2[, Country2]+phenotype_data2[, HealthCat2])
-summary(test5)
-
-test5 <- manova(met_pca2$x[,1:4]~phenotype_data2[, Country3]+phenotype_data2[, HealthCat2])
-summary(test5)
-test5 <- manova(met_pca2$x[,1:8]~phenotype_data2[, Country3])
-summary(test5)
-
-
-test6 <- manova(met_pca2$x[,1:8]~phenotype_data2[,IsolationSource2])
-summary(test6)
-
-test6 <- manova(met_pca2$x[,1:4]~phenotype_data2[,IsolationSource2])
-summary(test6)
-
-test6 <- manova(met_pca2$x[,1:4]~phenotype_data2[,IsolationSource2]+phenotype_data2[, Country2]+phenotype_data2[, HealthCat])
-summary(test6)
 
 ## check PERMANOVA also
 met_dists <- vegdist(t(as.matrix(met_means_wide[,names(met_means_wide) %in% phenotype_data2[,`Genome ID`], with = F])), method = "euclidean")
@@ -734,6 +726,102 @@ growth_corrs[order(abs(estimate), decreasing = T)][1:40]
 growth_corrs[MetName=="Ornithine"]
 ```
 
+## Figure 4E Pantothenic acid growth curves
+```{r}
+rm(list = ls())
+library(growthcurver)
+library(data.table)
+library(ggplot2)
+library(lubridate)
+library(cowplot)
+library(ggpubr)
+library(readxl)
+library(ggbeeswarm)
+library(RColorBrewer)
+
+theme_set(theme_classic2())
+source("scripts/growth_curve_functions.R")
+#datadir = "../../ElentaMediaMetabolomics/TimeCourse_take2_2020-8-17/"
+#datafile = paste0(datadir, "DM1Ac_test_56hr_2020-8-17.txt")
+#metadata_file = paste0(datadir, "testGrowthCurveLayout.txt")
+datadir <- "../GrowthExperiments/2022_05_26_pantothenateStrains/"
+datafile <- paste0(datadir, "Strains_Pant0_EDM_2022-05-29.txt")
+metadata_file <- paste0(datadir, "mediaPlan.xlsx")
+
+# Set up metadata
+layout_info = data.table(read_xlsx(metadata_file, sheet = "Layout"))
+layout_info[,Type:=ifelse(is.na(Row), "Strain", "Media")]
+layout_info <- layout_info[1:16]
+layout_info[,Row:=sapply(1:nrow(layout_info), function(x){
+  if(!is.na(layout_info[x, Row])){
+    return(layout_info[x,Row])
+  } else {
+    return(layout_info[x-1, Row])
+  }
+})]
+layout_info = melt(layout_info, id.var = c("Row", "Type"), variable.name = "Column")
+#layout_info[value=="" & Type=="Strain", value:="Control"]
+layout_info = dcast(layout_info, Row+Column~Type, value.var = "value")
+layout_info[,well:=paste0(Row, Column)]
+layout_info[,HasPantS:=ifelse(Strain %in% c("UCSF2243", "14A", "Valencia", "DSM11767", "W1BHI6"), "Yes", "No")]
+layout_info[Strain == "c", HasPantS:=NA]
+layout_info[Strain == "c", Strain:="Control"]
+#For normalization, the metadata needs to have a column named "Condition" to specify which blank wells/controls 
+# should be used for normalization with different experimental groups
+setnames(layout_info, "Media", "Condition") #In this case we have sterile blanks for each media group
+
+# Get set of blank wells for normalization from metadata
+blank_wells1 = layout_info[Strain=="Control", well]
+names(blank_wells1) = layout_info[Strain=="Control", Condition]
+
+# Read in file
+growth_data1 = read_growthcurve_file(datafile)
+
+# Formatting and initial plot
+growth_data_long = melt(growth_data1, id.var = c("time", "temp"), variable.name = "well")
+growth_data_long = merge(growth_data_long, layout_info, by = "well", all.x = T)
+growth_data_long = growth_data_long[!is.na(Condition)] #wells without metadata were empty
+growth_data_long <- growth_data_long[!is.na(value)]
+
+# Normalize based on blank wells
+corrected_data = correct_growth_data_custom(growth_data_long, blank_wells = blank_wells1, 
+                                            method = "blankTimeMatch", wide_form = F)
+# Change to look for a Treatment or Condition variable
+growth_data_norm = dcast(corrected_data, time~well, value.var = "NewValue", fill = 0)
+
+# Fit curves with growthcurver
+model_fits = fit_growthcurver_models(growth_data_norm, indiv_fits = F, trim_after = 54)
+
+# Fit curves with different trimming parameters for different wells
+all_samps = corrected_data[,unique(well)]
+trim_after_wells = rep(48, times = length(all_samps))
+trim_after_wells[grepl("10", all_samps)] = 66
+
+trim_before_wells = rep(0, length(all_samps))
+trim_before_wells[all_samps=="C10"] = 5
+#trim_before_wells[all_samps=="D8"] = 4
+
+model_fits2 = fit_growthcurver_models(growth_data_norm, indiv_fits = T, 
+                                      all_sample_mins = trim_before_wells, 
+                                      all_sample_maxes = trim_after_wells)
+model_fits2 = merge(model_fits2, layout_info, by.x = "Sample", by.y = "well", all.x = T)
+
+# Check bad model fits
+bad_fits = model_fits2[(k < 0.01 & r > 0.5) | k > 0.5 | t_mid < 0, Sample]
+ggplot(corrected_data[well %in% bad_fits], aes(x=time, y = NewValue, group = well, color = Strain)) + geom_line() + facet_wrap(~well)
+
+# Make nice plot
+k_plot <- ggplot(model_fits2[Sample != "C10"], aes(x = Strain, fill = Condition, y = k)) + geom_beeswarm(cex = 1.5, shape = 21, dodge.width = 0.4, size = 2.5) + facet_grid(.~HasPantS, scales = "free_x", space = "free_x") + ylim(0, 0.4) +
+scale_fill_manual(values = brewer.pal(4, "Paired")[c(4,3)], labels= c("EDM1", "EDM1 w/out\npantothenic acid"), name = "") + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8), strip.background = element_blank())  + ylab("Carrying capacity (k)")
+ggsave(k_plot, file = paste0(datadir, "pants_comparison_k.pdf"), width = 5.3, height = 2.8)
+
+growth_data_norm1 <- melt(growth_data_norm, id.var = "time", variable.name = "well", variable.factor = F)
+growth_data_norm1 <- merge(growth_data_norm1, layout_info[,list(well, Condition, Strain, HasPantS)], by = "well")
+fwrite(growth_data_norm1[well != "C10",list(well, Condition, Strain, HasPantS, TimeHr=time, value)], file = "figure_source_data/figure4E_pant0_growth.tsv", quote=F, row.names = F, sep = "\t")
+#fwrite(model_fits2[Sample != "C10"])
+
+```
+
 # FBA strain analysis
 
 ```{r fba_strains}
@@ -774,6 +862,8 @@ strain_models_subsys_plot
 summary_tab <- strain_summary[,list(length(unique(Rxn)), median(as.numeric(NumGenomesWRxn), na.rm = T), length(Rxn[CoreAccessory=="Core"])), by = Subsystem]
 setnames(summary_tab, c("Subsystem", "Number of reactions", "Median number of strain reconstructions with each reaction", "Number of core reactions"))
 fwrite(summary_tab, file = paste0(outdir, "suppTab_strainSummary.tsv"), sep = "\t")
+
+fwrite(strain_summary[,list(Rxn, Subsystem2, CoreAccessory, NumGenomesWRxn)], file = "figure_source_data/figureS9A_coreAccessory.tsv", quote=F, row.names = F, sep = "\t")
 
 ########### LOO data
 loo_results_files <- list.files(path = datadir, pattern = 'DM1b_LOO_predictions_2022-08_', full.names = T)
@@ -828,5 +918,145 @@ strain_loo_plot <- ggplot(loo_results[Strain2 != "DSM2243"], aes(y = factor(Stra
 ggsave(strain_loo_plot, file = paste0(outdir, "strainLOOs.pdf"), width = 7.5, height = 4.2)
 
 strain_loo_plot
+
+fwrite(loo_results[Strain2 != "DSM2243", list(Strain, Compound=comp, Name, FBAGrowthRate = comp_outcomes)], file = "figure_source_data/FigureS9B_looStrainTest.tsv", quote=F, row.names = F, sep = "\t")
+
+```
+
+## Figure S8E - Teichoic acid genes
+```{r}
+rm(list = ls())
+library(data.table)
+library(tidyverse)
+library(gggenes)
+library(Biostrings)
+library(ape)
+library(ggtree)
+outdir <- "figure_s8/"
+### plot teichoic acid clusters
+gff_dir <- "../../../jbisanz/ElGenomes2019/annotation/gff/"
+gff_files <- list.files(gff_dir, pattern = "Eggerthella")
+gff_files <- gff_files[!grepl("MAG", gff_files) & !grepl("timonensis", gff_files) & !grepl("sp_YY", gff_files) & !grepl("HGA", gff_files) & !grepl("C592", gff_files) & !grepl("TF052", gff_files) & !grepl("19C", gff_files) & !grepl("16A", gff_files)]
+gff_all <- rbindlist(lapply(gff_files, function(x){
+  foo <- fread(paste0(gff_dir, x))
+  foo[,Genome:=gsub(".gff", "", x)]
+}))
+gff_all[,Info:=strsplit(V9, split = ";")]
+gff_all[,locus_tag:=gsub("locus_tag=", "", as.character(sapply(Info, function(x){ return(x[grepl("locus_tag", x)])})))]
+gff_all[,Product:=as.character(sapply(Info, function(x){ return(x[grepl("product=", x)])}))]
+gff_all[,Name:=gsub("Name=", "", as.character(sapply(Info, function(x){ return(x[grepl("Name=", x)])})))]
+tarJ <- gff_all[grepl("tarJ", V9)] 
+tarI <- gff_all[grepl("tarI", V9)]
+gff_all[,IsTarJ:=ifelse(grepl("tarJ", V9), 1, 0)]
+gff_all[,IsTarI:=ifelse(grepl("tarI", V9), 1, 0)]
+gff_all[,IsTagO:=ifelse(grepl("tagO", V9), 1, 0)]
+gff_all[,Teichoic:=ifelse(grepl("Teichoic", V9, ignore.case = T), 1, 0)]
+gff_all[,TarTag:=ifelse(grepl("tar", Name)|grepl("tag[A-Z]", Name), 1, 0)]
+genomes_all <- data.table(Genome = sort(unique(gff_all[,Genome])))
+genomes_all[,LocusTags:=sapply(Genome, function(x){
+  gff_all[Genome==x & (Teichoic==1|TarTag==1), locus_tag]
+})]
+genomes_all[,Names:=sapply(Genome, function(x){
+  gff_all[Genome==x & (Teichoic==1|TarTag==1), Name]
+})]
+
+genomes_all[,NumLocusTags:=sapply(Genome, function(x){
+  gff_all[Genome==x & (Teichoic==1|TarTag==1), length(locus_tag)]
+})]
+
+genomes_all[,MainRegion:=sapply(Genome, function(x){
+  gff_all[Genome==x, list(tot=sum(Teichoic==1|TarTag==1)), by=V1][order(tot, decreasing = T)][1, V1]
+})]
+genomes_all[,StartFirstGene:=sapply(1:nrow(genomes_all), function(x){
+  gff_all[Genome==genomes_all[x, Genome] & V1==genomes_all[x, MainRegion] & (Teichoic==1|TarTag==1), min(V4)]
+})]
+genomes_all[,EndLastGene:=sapply(1:nrow(genomes_all), function(x){
+  gff_all[Genome==genomes_all[x, Genome] & V1==genomes_all[x, MainRegion] & (Teichoic==1|TarTag==1), max(V5)]
+})]
+genomes_all[,SizeOfRegion:=EndLastGene-StartFirstGene]
+genomes_all[,HasTagO:=ifelse(grepl("tagO", Names), 1, 0)]
+genomes_all[,HasTagF:=ifelse(grepl("tagF", Names), 1, 0)]
+genomes_all[,HasTarJ:=ifelse(grepl("tarJ", Names), 1, 0)]
+genomes_all[,Direction:=sapply(MainRegion, function(x){
+  return(gff_all[V1==x & Name=="tagG", V7])
+})]
+genomes_all[Genome=="Eggerthella_lenta_DSM2243REF", EndLastGene:=2396406] #shorten artificially
+gff_sub <- gff_all[V1 %in% genomes_all[,MainRegion]]
+gff_sub <- merge(gff_sub, genomes_all[,list(MainRegion, StartFirstGene, EndLastGene, HasTagF, HasTarJ, HasTagO, Direction)], by.x = "V1", by.y = "MainRegion", all.x = T)
+gff_sub[,Keep:=ifelse(V4 >= (StartFirstGene-5000) & V5 <= (EndLastGene+5000), 1, 0)]
+gff_sub <- gff_sub[Keep==1]
+gff_sub[,Name2:=gsub("_[0-9]$", "", Name)]
+
+gff_sub[,forward2:=ifelse(V7=="+", T, F)]
+gff_sub[,start:=ifelse(V7 == "+", V4, V5)]
+gff_sub[,end:=ifelse(V7 == "+", V5, V4)]
+gff_sub[Direction == "-", start:= -1*start]
+gff_sub[Direction == "-", end:= -1*end]
+
+gff_sub[,Name3:=ifelse(grepl("character", Name2), gsub(".*_", "", locus_tag), Name2)]
+
+dummies <- make_alignment_dummies(
+  gff_sub,
+  aes(xmin = start, xmax = end, y = V1, id = Name3, fill = Name2),
+  on = "tagG")
+
+# plot_all <- ggplot(gff_sub, aes(xmin = start, xmax = end, y = V1, fill = Name3)) +
+#   geom_gene_arrow() +
+#   geom_blank(data = dummies) +
+#   facet_wrap(~V1, scales = "free", ncol = 1) +
+#   theme_genes() + geom_gene_label(aes(label = Name2), min.size = 2) + guides(fill = "none")
+# ggsave(plot_all, file = "/Volumes/turnbaughlab/qb3share/cecilia/ElentaMediaMetabolomics/tagGenesAllGenomes.pdf", width = 14, height = 20)
+# 
+
+phylogeny <- read.tree("../../../jbisanz/ElGenomes2019/phylophlan/output/AllStrains_nomags/AllStrains_nomags.tree.nwk")
+phylogeny <- drop.tip(phylogeny, phylogeny$tip.label[!phylogeny$tip.label %in% gff_sub[,Genome]])
+phylogeny <- root(phylogeny, "Eggerthella_sinensis_DSM16107")
+
+phylogeny_order <- cophenetic.phylo(phylogeny) %>% as.matrix() %>% as.data.frame() %>% rownames_to_column("Genome1") %>% as.data.table() %>%  melt(variable.factor = F) %>% 
+  filter(grepl("sinensis", variable)) %>% arrange(value) %>% pull(Genome1)
+
+gff_sub[,Genome:=factor(Genome, levels = phylogeny_order)]
+
+dummies <- make_alignment_dummies(
+  gff_sub,
+  aes(xmin = start, xmax = end, y = Genome, id = Name2, fill = Name2),
+  on = "tagG")
+
+# plot_all <- ggplot(gff_sub, aes(xmin = start, xmax = end, y = Genome, fill = Name2)) +
+#   geom_gene_arrow() +
+#   geom_blank(data = dummies) +
+#   facet_wrap(~Genome, scales = "free", ncol = 1) +
+#   theme_genes() + geom_gene_label(aes(label = Name3), min.size = 2) + guides(fill = "none") + theme(axis.text.x = element_text(size = 6))
+# ggsave(plot_all, file = "tagGenesAllGenomesPhylo.pdf", width = 13, height = 14)
+
+genome_subset <- c("Eggerthella_lenta_DSM2243REF", "Eggerthella_lenta_1160AFAABroad", "Eggerthella_lenta_CC82BHI2", "Eggerthella_lenta_1356FAA",
+                   "Eggerthella_lenta_AB12n2", "Eggerthella_lenta_A2", "Eggerthella_lenta_14A", "Eggerthella_lenta_Valencia",
+                   "Eggerthella_lenta_SECOmt75m2", "Eggerthella_sinensis_DSM16107")
+
+#gff_sub[Name2 == "character(0)", Name2:=""]
+new_levels <- levels(gff_sub$Genome)[levels(gff_sub$Genome) %in% genome_subset]
+gff_sub2 <- gff_sub[Genome %in% genome_subset]
+gff_sub2[,Genome:=factor(Genome, levels = new_levels)]
+top_genes <- gff_sub2[!grepl("character", Name2),length(Genome), by=Name2][order(V1, decreasing = T)][1:12, Name2]
+gff_sub2[,Name4:=ifelse(Name2 %in% top_genes, Name2, "")]
+
+dummies <- make_alignment_dummies(
+  gff_sub2,
+  aes(xmin = start, xmax = end, y = Genome, id = Name4, fill = Name4),
+  on = "tagG")
+
+color_scale_names <- c(brewer.pal(12, "Paired"), "white")
+names(color_scale_names) <- c(top_genes, "")
+plot_selected <- ggplot(gff_sub2, aes(xmin = start, xmax = end, y = Genome, fill = Name4)) +
+  geom_gene_arrow() +
+  geom_blank(data = dummies) +
+  facet_wrap(~Genome, scales = "free", ncol = 1) +
+  theme_genes() + #geom_gene_label(aes(label = Name3), min.size = 2) + 
+  theme(axis.text.x = element_blank(), legend.position = "bottom", panel.spacing = unit(0.01, "in")) + scale_fill_manual(values = color_scale_names)
+
+ggsave(plot_selected, file = paste0(outdir, "tagGenes_region_examples.pdf"), 
+       width = 8.5, height = 4.8)
+
+fwrite(gff_sub2[,list(Genome, locus_tag, Name=Name4, Start =V4, End =V5, Direction, Product, IsTarJ, IsTarI, IsTagO, Teichoic, TarTag)], file = "figure_source_data/figureS8E_tarTagGeneAnnots.tsv", quote=F, row.names = F, sep = "\t")
 
 ```

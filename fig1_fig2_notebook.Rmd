@@ -51,6 +51,7 @@ summary_data <- fread("processedDatasets/timecourse_mean_summaries.csv")
 
 processed_data <- fread("processedDatasets/time_course_all_data_clustered_features_test.csv")
 summary_data <- fread("processedDatasets/timecourse_mean_summaries_clustered_features_test.csv")
+
 summary_data <- summary_data[!IDUniq %in% processed_data[Duplicate==1, unique(IDUniq)]]
 #growth_file<-paste0(datadir, "TimeCourse_take2_2020-8-17/ODdata.xlsx")
 
@@ -77,6 +78,8 @@ growth_data_sub <- rbind(growth_data_sub, data.table(Time = 0, V1 = 0.01), fill 
 growth2_sub <- growth2[Strain == "2243" & AcConc==1]
 growth2_sub <- rbind(growth2_sub, data.table(Time = rep(0, 3), OD600 = rep(0.01, 3), Replicate = 1:3), fill = T)
 
+fwrite(growth2_sub[,list(Strain, Time, AcConc, Replicate, OD600)], file = "figure_source_data/figure1d_growth_data.tsv", quote=F, row.names = F, sep = "\t")
+
 growth_plot_heatmap <- ggplot(growth2_sub[,mean(OD600), by=Time], aes(x = factor(Time), y = 1, fill = V1)) + geom_tile(color = "black") + xlab("Time (hr)") + 
   theme_minimal() + scale_fill_gradient(low = "white", high = "gray20", name = "E. lenta DSM 2243 abundance\n(mean normalized OD600)") + theme(axis.text.y = element_blank(), 
                                                                                                                                                axis.title.y = element_blank())
@@ -91,6 +94,10 @@ summary_data[TimePoint==6 & AcConc==1 & Strain == "2243" , table(MSI)]
 #### Add Other bucket to superclass annotation
 class_counts <- summary_data[TimePoint==6 & AcConc==1 & Strain == "2243", length(unique(IDUniq)), by = CF_superclass][order(V1, decreasing = T)]
 summary_data[,CF_superclass2:=ifelse(CF_superclass %in% class_counts[V1 < 5, CF_superclass], "Other", CF_superclass)]
+processed_data[,CF_superclass2:=ifelse(CF_superclass %in% class_counts[V1 < 5, CF_superclass], "Other", CF_superclass)]
+
+
+fwrite(processed_data[Strain == 2243 & AcConc == 1, list(Sample, Strain, AcConc, Replicate, IDUniq, IonMode, MSI, AvgRt, AvgMZ, MetName, INCHIKEY, Duplicate, value, log10value, MinFeatValue, CF_superclass2)], file = "figure_source_data/figure1_met_data.tsv", quote=F, row.names = F, sep = "\t")
 
 #### Volcano plot
 volcano_plot_gnps <- ggplot(summary_data[TimePoint==6 & AcConc==1 & Strain == "2243" & CF_superclass == "no matches"], aes(x = log2FC_adj, y = -1*log10(p.value))) +
@@ -182,6 +189,10 @@ Figure S1 various media analyses
 
 ```{r fig_s1}
 ####### Figure S1
+#version with dups removed: c(29, 31, 40, 47, 56, 61, 62, 66, 91, 97, 98, 100, 101, 102, 104, 106, 112, 115, 122, 123, 124, 128)
+summary_data <- fread("processedDatasets/timecourse_mean_summaries_clustered_features_test.csv")
+## Need pos and neg including duplicates here
+
 named_mets <- data.table(MetName = summary_data[!grepl("known", MetName),sort(unique(MetName))])
 named_mets[c(29, 31, 41, 48, 57, 63, 64, 68, 94, 100, 101, 103, 104, 105, 107, 109, 
              115, 118, 125, 126, 127, 131), MediaComponent:=1]  
@@ -203,6 +214,10 @@ media_component_plot <- summary_data[MediaComponent==1 & AcConc == 1 & Strain=="
 ggsave(media_component_plot, file = paste0(outdir, "media_components_metabolomics.pdf"), width=7, height = 5.5)
 
 media_component_plot
+
+processed_data[,MediaComponent:=ifelse(IDUniq %in% summary_data[MediaComponent==1, IDUniq], 1, 0)]
+fwrite(processed_data[Strain == 2243 & AcConc == 1, list(Sample, Strain, AcConc, Replicate, IDUniq, IonMode, MSI, AvgRt, AvgMZ, MetName, INCHIKEY, MediaComponent, Duplicate, value, log10value, MinFeatValue, CF_superclass2)], file = "figure_source_data/figure1_figureS1_met_data.tsv", quote=F, row.names = F, sep = "\t")
+
 
 ####### compare with Sonnenburg and Bisanz datasets
 ## Quick look at sonnenburg data
@@ -256,6 +271,7 @@ counts_all[,Dataset:=factor(Dataset, levels = c(
   "Han et al\n(Mega)",
   "EDM1"
 ))]
+fwrite(counts_all, file = "figure_source_data/figureS1c_datasetCompare.tsv", quote=F, row.names = F, sep = "\t")
 # blue = HSL 7, 2, 255
 # red = rgb 255, 4, 1
 
@@ -501,6 +517,10 @@ levels(condition_info$LOOCategory) <- c("Full DM1", "Amino acid dropouts", "Vita
 corrected_data_all[,Time2:=round(time, digits = 1)]
 corrected_data_all[,Condition2:=ifelse(Condition == "DM1", paste0(Condition, "_", Experiment), Condition)]
 corrected_data_all[,Condition3:=paste0(Condition, "_", Experiment)]
+
+fwrite(corrected_data_all[,list(Experiment, Condition, BaseDM1Condition, Row, Column, well, TimeHr=Time2, NormalizedValue = NewValue)], 
+       file = "figure_source_data/figureS2_growthData.tsv", quote=F, row.names = F, sep = "\t")
+
 average_dat <- corrected_data_all[Strain == "2243" & Experiment != "VitaminLOOs2" & (grepl("LOO", Experiment)|
                                                         Experiment %in% c("AgmatineCombinations", "DM1OldB12Old")|
                                                         (Experiment == "AcArgUracilRflv" & Condition %in% c("DM1b", "DM1bNoUracil"))|
@@ -553,12 +573,18 @@ fwrite(model_fits_compare_good2, file = paste0(outdir, "growth_curve_resultsAllS
 model_fits_compare_good2b <- melt(model_fits_compare_good2, id.var = c("LOOCategory", "LOO", "Sample", "Condition", "Experiment"), 
                                   measure.vars = c("auc_e", "t_mid", "k", "r"))
 model_fits_compare_good2b[,LOOCategory2:=gsub(" dropouts", "s", as.character(LOOCategory))]
+model_fits_compare_good2b[, LOOCategory3:=ifelse(LOOCategory2 %in% c("Others", "Amino acids"), "Amino acids &\nother carbon sources", LOOCategory2)]
+
+fwrite(model_fits_compare_good2b[,list(LOOCategory3, LOO, Sample, Experiment, variable, value)], file = "figure_source_data/figureS2_growthDataParameters.tsv")
+
 median_fracs2b <- model_fits_compare_good2b[Experiment !="VitaminLOOs2" & value < 100,median(value),
                                             by = list(LOOCategory, LOOCategory2, LOO, variable)]
 median_fracs2b[, LOOCategory3:=ifelse(LOOCategory2 %in% c("Others", "Amino acids"), "Amino acids &\nother carbon sources", LOOCategory2)]
 median_fracs2b[,LOOCategory3:=factor(LOOCategory3, levels = names(category_colors2[1:3]))]
 base_means <- unique(model_fits_compare_good2[,list(Experiment, base_aucE_mean, base_tmid_mean, base_k_mean, base_r_mean)])
 base_means <- data.table(variable = c("auc_e", "t_mid", "k", "r"), baseVal = c(median(base_means$base_aucE_mean), median(base_means$base_tmid_mean), median(base_means$base_k_mean), median(base_means$base_r_mean)))
+
+
 parameter_hists2 <- ggplot(median_fracs2b, aes(x = V1, fill = LOOCategory3))+ 
   theme(strip.background = element_blank(), panel.border = element_rect(color = "black", fill = NA)) +
   geom_vline(data = base_means, aes(xintercept = baseVal), linetype = 2) + geom_histogram(bins = 15) + 
@@ -677,6 +703,10 @@ all_growth_data <- corrected_data_all[(Strain %in% c("2243", "c") & (Experiment 
 fwrite(all_growth_data, file = paste0(outdir, "growthDataPaperAll.txt"), sep = "\t")
 
 
+## carboxylic acids exp
+ggplot(all_growth_data[Experiment == "AddCarboxylicAcids"], aes(x = Time2, y = NewValue, color = Condition2)) + geom_line(aes(group = well))
+fwrite(all_growth_data[Experiment == "AddCarboxylicAcids", list(TimeHr = Time2, Condition, well, NormalizedOD600 = NewValue)], file = "figure_source_data/figure2B_carboxylicAcids_growth.tsv", quote=F, row.names = F, sep = "\t")
+
 ```
 
 # Figure 2 (unlabeled data)
@@ -751,7 +781,6 @@ processed_data[,ZScoreLog:=scale(log10value), by=list(IDUniq, Strain)]
 mean_dat_plot <- processed_data[Strain %in% c("2243", "AB8", "Val") & AcConc %in% c(0,1, 10) & IDUniq %in% variable_features3 & Duplicate == 0, 
                                 mean(ZScoreLog), by = list(Strain, AcConc, IDUniq,  MetName, MSI,Time, CF_superclass)]
 
-
 mean_dat_plot[,DuplicateID:=length(unique(IDUniq)), by=MetName]
 
 feat_list <- mean_dat_plot[!MetName %in% c("Unknown", "unknown") & Strain == 2243 & !(DuplicateID==2 & grepl("Pos", IDUniq)), unique(IDUniq)]
@@ -760,6 +789,9 @@ label_names <- sapply(variable_feat_order_sub, function(x){ return(mean_dat_plot
 
 mean_dat_plot_wide <- dcast(mean_dat_plot[IDUniq %in% variable_feat_order_sub & Strain == 2243], IDUniq~AcConc+Time, value.var = "V1")
 label_names <- sapply(mean_dat_plot_wide[,IDUniq], function(x){ return(mean_dat_plot[IDUniq==x, paste0(MetName, " (", MSI, ")")][1])})
+
+fwrite(processed_data[Strain %in% c("2243",  "AB8", "Val") & AcConc %in% c(0,1, 10) & IDUniq %in% variable_feat_order_sub & Duplicate == 0, list(IDUniq, IonMode, AlignmentID, AvgRt, AvgMZ, MetName, Sample, Strain, AcConc, TimePoint, Time, Replicate, SampleType, value, log10value, ZScoreLog)], file = "figure_source_data/figure2C_figureS3C_acetate_met_heatmap.tsv", quote=F, row.names = F, sep = "\t")
+
 
 Heatmap(mean_dat_plot_wide[,2:ncol(mean_dat_plot_wide)], cluster_columns = F, col = c(brewer.pal(3, "Set1")[c(2,1)], "white")[c(1,3,2)], 
         row_labels = label_names, row_names_gp = gpar(fontsize = 7), column_split = factor(c(rep("0mM", 6), rep("1mM", 6), rep("10mM", 6)), levels = c("0mM", "1mM", "10mM")), 
@@ -774,6 +806,7 @@ Heatmap(mean_dat_plot_wide[,2:ncol(mean_dat_plot_wide)], cluster_columns = F, co
 dev.off()
 
 
+
 ############ Growth of all 3 strains
 mean_growth <- growth2[,list(mean(OD600), sd(OD600)/sqrt(length(OD600))), by = list(Time, AcConc, Strain)]
 growth_all <- ggplot(mean_growth[AcConc != "0Add10"], aes(x = Time, y = V1, color = AcConc)) + geom_line() + geom_errorbar(width = 0, aes(ymin = V1-V2, ymax = V1+V2)) + geom_point() + facet_wrap(~Strain, nrow = 3) + scale_color_manual(values = brewer.pal(5, "Blues")[3:5]) + ylab("OD600") + xlab("Time (hr)")
@@ -781,6 +814,8 @@ growth_all <- ggplot(mean_growth[AcConc != "0Add10"], aes(x = Time, y = V1, colo
 ggsave(growth_all, file = paste0(outdir, "acetateExperimentGrowth.pdf"), width = 3.5, height = 6)
 
 growth_all
+
+fwrite(growth2[,list(Time, Strain, AcConc, Replicate, OD600)], file = "figure_source_data/figureS3B_acetateStrainsGrowth.tsv", quote=F, row.names = F, sep = "\t")
 
 ############## AB8 and Valencia SantaR
 ## Which mets are significantly diff with acetate 0 vs 1 for each of these strains?
@@ -975,6 +1010,10 @@ ggsave(intracellular_plot5, file = paste0(outdir, "intracellular_sil_2243_ID_sum
 
 intracellular_plot5
 
+
+raw_data_save <- lower_level_data_long[TimePoint=="TP5" & CompID %in% c(top_comps2, top_comps_ab8, top_comps_val) & AcetateGroup %in% c("1L", "10L") & AreaFrac != 0, list(CompID, Formula, Tags.y, AnnotationMolWt, RT, NumLabeledC, Sample, Strain, AcetateGroup, Replicate, AreaFrac)]
+fwrite(raw_data_save, file = "figure_source_data/figure2E_S4CD_intracellularAcetateMets.tsv", quote=F, row.names = F, sep = "\t")
+
 summary_tab2[CompID %in% top_comps2 & Strain %in% c("c", "2243") & grepl("known", CompID) & AcetateGroup %in% c("1L", "10L") , length(unique(CompID))]
 
 ###### What frac of UDP is labeled?             
@@ -1157,6 +1196,8 @@ ggsave(extracellular_plot5, file = paste0(outdir, "extracellular_SIL_summaryIDco
 
 extracellular_plot5 
 
+raw_dat2ex <- low_level_data[Sample2 != "c_10L_TP8_1" & !CompID %in% dup_comps & (CompID %in% top_comps2ex_sub|CompID %in% top_comps2ex_otherspec)& Strain != "c" & AcetateGroup %in% c("10L") & !grepl("ASCORBIC", CompID) & value != 0, list(CompID, FeatID, MolWt, Formula, MSI, NumLabeledC, NumLabeledC2, AcetateGroup, Strain, Time, Sample, value, AreaFrac)]
+fwrite(raw_dat2ex, file = "figure_source_data/figureS4B_extracellular_labels.tsv", quote=F, row.names = F, sep = "\t")
 
 ##### Extracellular compound summary (supp table)
 tab_save <- summary_tab2ex[(CompID %in% top_comps2ex_sub|CompID %in% top_comps2ex_otherspec) & Strain != "c" & TimePoint == "TP8" & AcetateGroup %in% c("1L", "10L")][V1 != 0]
@@ -1190,7 +1231,7 @@ bad_feat4 <- low_level_data[NumLabeledC > 0 & (Time < 15|(Strain == "c" & Time <
 labeled_compounds <- low_level_data[BadFeat==0 & BadFeat3 == 0 & BadCtrl == 0 & !FeatID %in% bad_feat4 & NumLabeledC > 0 & !Status %in% c("Contaminating mass", "Low pattern fit"), sum(AreaFrac), by = list(Name, CompID, Strain, AcetateGroup2, TubeSample,TimePoint, Sample, MSI, Formula, Replicate, Time, TotNumC)]
 
 labeled_compounds_count <- labeled_compounds[,length(unique(CompID[V1 > 100000])), by = list(Strain, AcetateGroup2,TimePoint, Time, Replicate)]
-
+fwrite(labeled_compounds_count[,list(TimePoint, Time, Strain, AcetateGroup = AcetateGroup2, Replicate, NumberLabeledComps=V1)], file = "figure_source_data/figure2D_numLabeledComps.tsv", quote=F, row.names = F, sep = "\t")
 
 ac_group_scale <- brewer.pal(5, "Paired")[c(5, 1:4)]
 names(ac_group_scale) <- c("0", "1", "1L", "10", "10L")
@@ -1219,6 +1260,9 @@ od_data[,Replicate:=as.character(Replicate)]
 setnames(od_data, "value", "OD600")
 time_pt_tab <- data.table(TimePoint=paste0("TP", 0:8), Time = c(0, 15, 18.5, 23,28.5, 39, 43, 47.5, 64))
 od_data <- merge(od_data, time_pt_tab, by = "TimePoint", all.x = T)
+
+fwrite(od_data, file = paste0("figure_source_data/figureS4A_SILAcetateGrowth.tsv"), quote=F, row.names = F, sep = "\t")
+
 mean_od_data <- od_data[,list(mean(OD600, na.rm = T), sd(OD600, na.rm = T)/sqrt(length(OD600[!is.na(OD600)]))), by=list(Time, TimePoint, Strain, StrainFull, AcConc, AcetateGroup)]
 
 od_plot <- ggplot(mean_od_data, aes(x = Time, y = V1, color = AcetateGroup)) + geom_line() + geom_point() + 
@@ -1230,6 +1274,81 @@ ggsave(od_plot, file = paste0(outdir, "sil_growth.pdf"), width = 7.5, height = 2
 
 od_plot
 
+
+```
+
+# Figure 2A-B: Acetate related growth experiments
+```{r acetate_growth}
+outdir <- "figure2/"
+dir.create(outdir)
+
+source("scripts/growth_curve_functions.R")
+#### Replot of acetate
+datafile <- "../SILAcetateTimeCourse/DM1Ac_SilPretest_2020-10-30.txt"
+metadata_file <- "../SILAcetateTimeCourse/mediaPlan_wTestLayout_updated2.xlsx"
+
+# Set up metadata
+layout_info <- data.table(read_xlsx(metadata_file, sheet = 3))
+layout_info <- layout_info[1:16,1:13, with=F]
+layout_info[,Type:=ifelse(is.na(Row), "Strain", "Media")]
+layout_info[,Row:=sapply(1:nrow(layout_info), function(x){
+  if(!is.na(layout_info[x, Row])){
+    return(layout_info[x,Row])
+  } else {
+    return(layout_info[x-1, Row])
+  }
+})]
+layout_info <- melt(layout_info, id.var = c("Row", "Type"), variable.name = "Column")
+layout_info <- dcast(layout_info[!is.na(Row)], Row+Column~Type, value.var = "value")
+layout_info[,well:=paste0(Row, Column)]
+layout_info[,Strain:=case_when(
+  grepl("_c$", Media) ~ "c",
+  Strain == 2243 ~ "2243",
+  Strain == "Val" ~ "Valencia",
+  Strain == "AB8" ~ "AB8n2"
+)]
+layout_info <- layout_info[!is.na(Media) & !is.na(Strain)]
+
+layout_info[,AcetateConc:=gsub("DM1Ac", "", Media)]
+layout_info[,Media:=gsub("_c$", "", Media)]
+#layout_info[well ]
+
+layout_info[,Condition:=paste0(Media, Row)]
+
+blank_wells1 = layout_info[Strain=="c", well]
+names(blank_wells1) = layout_info[Strain=="c", Condition]
+
+# Read in file
+growth_data1 = read_growthcurve_file(datafile)
+
+# Formatting and initial plot
+growth_data_long = melt(growth_data1, id.var = c("time", "temp"), variable.name = "well")
+growth_data_long = merge(growth_data_long, layout_info, by = "well", all.x = T)
+growth_data_long = growth_data_long[!is.na(Condition)] #wells without metadata were empty
+growth_data_long <- growth_data_long[!is.na(value)] #cut off readings
+
+# Normalize based on blank wells
+corrected_data <- correct_growth_data_custom(growth_data_long, blank_wells = blank_wells1, 
+                                             method = "blankTimeMatch", wide_form = F)#, ctrlMaxTime = 40, ctrlMinTime = 30)
+# Ideal - do time matched for part 1 and median blank (with cutoff) for part 2
+# Change to look for a Treatment or Condition variable
+growth_data_norm <- dcast(corrected_data, time~well, value.var = "NewValue", fill = 0)
+
+# Fit curves with growthcurver
+model_fits <- fit_growthcurver_models(growth_data_norm, indiv_fits = F, trim_after = 45)
+
+
+plot1 = plot_growth_curves(growth_data_norm = growth_data_norm[,c("time", layout_info[Strain == "2243", well]), with = F], 
+                           group_metadata = layout_info[Strain == "2243"], 
+                           color_var = "AcetateConc", mean_se = T) + xlim(0, 44) + ylab("Cell density (OD600)") + xlab("Time (hr)") + theme_classic() + scale_fill_brewer(palette = "Set1", name = "Acetate (mM)")# + scale_color_distiller(palette = "Blues", direction = 1) + ylim(0, 0.6)
+ggsave(plot1, file = paste0(outdir, "preTest2243Curves.pdf"), width = 4, height = 3)
+
+growth_data_norm1 <- melt(growth_data_norm[,c("time", layout_info[Strain == "2243", well]),with=F], id.var = "time", variable.name = "well", variable.factor = F, value.name = "NormalizedOD600")
+growth_data_norm1 <- merge(growth_data_norm1, layout_info[Strain == "2243", list(well, Media, Strain, AcetateConc)], by = "well")
+fwrite(growth_data_norm1, file = "figure_source_data/figure2A_growth.tsv", quote=F, row.names = F, sep = "\t")
+
+
+### Figure 2B
 
 ```
 
@@ -1317,6 +1436,9 @@ diffs_all[,ylev:=case_when(
 )]
 diffs_all[,Acetate2:=factor(Acetate2, levels = c("0mM Ac", "1mM Ac", "10mM Ac"))]
 ac_loq <- met_data[Compound=="Acetate", unique(LLOQ)]
+
+source_dat <- met_data[Compound == "Acetate" & !is.na(Time), list(Sample, Location, Row, Column, AcetateConc, TimePoint, Time, Replicate, LLOQ, ULOQ, mMCorrected = mM-1.05)]
+fwrite(source_dat, file = "figure_source_data/figureS3A_targetedAcetate.tsv", quote=F, row.names = F, sep = "\t")
 
 ## Plot data
 acetate_means <- met_data[Compound == "Acetate" & !is.na(Time), list(mean(mM-1.05), sd(mM-1.05)/sqrt(length(mM))), by = list(Time, Strain, Acetate2)]
@@ -1455,6 +1577,9 @@ ggsave(hilic_intra_labels, file = paste0(outdir, "hilic_intra_arg_topIDcomps_sub
 
 hilic_intra_labels
 
+raw_data <- hilic_intra[ArgGroup == "HR" & Strain == "2243" & CompID %in% top_id_comps & !grepl("known", Name) & value != 0, list(CompID, FeatID, Name, Formula, MSI, NumLabeledC, Sample, Strain, ArgGroup, TimePoint, Time, Replicate, value, AreaFrac)]
+fwrite(raw_data, file = "figure_source_data/figureS5D_argIntracellular.tsv", quote=F, row.names = F, sep = "\t")
+
 ############# Supp table
 tab_save <- median_dat[(CompID %in% top_labeled_comps) & Strain != "c" & ArgGroup == "HR"][V1 != 0 & V2 != 0]
 setnames(tab_save, c("V2", "V3"), c("MeanPeakArea", "SEPeakArea"))
@@ -1520,6 +1645,9 @@ ggsave(arg_plot, file = paste0(outdir, "arg_labels.pdf"), width = 4, height = 2.
 
 arg_plot
 
+arg_source_dat <- hilic_extra[ArgGroup == "HR" & Strain == "2243" & FeatID %in% most_abund_iso[V1 != 0 & grepl("Pos$", CompID)][order(V2, decreasing = T)][1:3, paste0(CompID, "_ExRate", V1)]][,list(FeatID, Name, NumLabeledC, Formula, MSI, Sample = Sample2, ArgGroup, Strain, Time, Replicate, AreaFrac)]
+fwrite(arg_source_dat[order(FeatID)], file = "figure_source_data/figureS5B_argCitrOrn.tsv", quote=F, row.names = F, sep = "\t")
+
 feat_data_wide <- dcast(mean_dat[Strain == "2243" & ArgGroup == "HR"], FeatID+CompID+Formula+Name+NumLabeledC~TimePoint, value.var = "V1")
 
 max_vals <- hilic_extra[,.(MaxVal = max(AreaFrac)), by = FeatID]
@@ -1555,6 +1683,9 @@ ggsave(hilic_extra_labels, file = paste0(outdir, "sil_arg_hilic_extra_barplots_v
 
 hilic_extra_labels
 
+extra_source_data <- hilic_extra[ArgGroup == "HR" & Strain == "2243" & CompID %in% top_comps3 & !grepl("known", Name) & value != 0, list(FeatID, CompID, Name, NumLabeledC, Formula, MSI, Sample = Sample2, ArgGroup, Strain, Time, TimePoint, Replicate, AreaFrac, value)]
+fwrite(extra_source_data[order(FeatID)], file = "figure_source_data/figureS5C_argExtracellular.tsv", quote=F, row.names = F, sep = "\t")
+
 most_abund_comps_pos <- mean_dat[ArgGroup == "HR" & Strain == "2243" & grepl("Pos$", CompID), sum(V1), by=CompID][order(V1, decreasing = T)][1:12, CompID]
 tot_signal_plot_extra <- ggplot(mean_dat[ArgGroup == "HR" & Strain == "2243" & CompID %in% most_abund_comps_pos & 
                                            NumLC2 %in% c("M+0", "M+5", "M+6")], aes(x = factor(Time), fill = factor(CompID, levels = most_abund_comps_pos), y = V1)) + 
@@ -1565,6 +1696,9 @@ tot_signal_plot_extra <- ggplot(mean_dat[ArgGroup == "HR" & Strain == "2243" & C
 ggsave(tot_signal_plot_extra, file = paste0(outdir, "totalSignalExtracellular.pdf"), width = 7, height = 5)
 
 tot_signal_plot_extra
+
+tot_signal_source_data <- hilic_extra[ArgGroup == "HR" & Strain == "2243" & CompID %in% most_abund_comps_pos & NumLabeledC %in% c(0,5,6) & grepl("Pos$", CompID), list(FeatID, CompID, Name, NumLabeledC, Formula, MSI, Sample = Sample2, ArgGroup, Strain, Time, TimePoint, Replicate, AreaFrac, value)]
+fwrite(tot_signal_source_data, file = "figure_source_data/figureS5E_argExtracellularPosAbundFeats.tsv", quote=F, row.names = F, sep = "\t")
 
 ############# Supp table
 tab_save <- mean_dat[(CompID %in% intersect(top_comps2, top_labeled_comps3)) & Strain != "c" & ArgGroup == "HR"][V1 != 0]
@@ -1596,3 +1730,120 @@ fwrite(tab_save[order(MolWt)], file = paste0(outdir, "extracellular_arg_labeling
 
 ```
 
+Figure S5 - Arginine/Citrl growth experiment
+```{r}
+library(growthcurver)
+library(data.table)
+library(ggplot2)
+library(lubridate)
+library(cowplot)
+library(ggpubr)
+library(readxl)
+theme_set(theme_classic2())
+source("scripts/growth_curve_functions.R")
+#datadir = "../../ElentaMediaMetabolomics/TimeCourse_take2_2020-8-17/"
+#datafile = paste0(datadir, "DM1Ac_test_56hr_2020-8-17.txt")
+#metadata_file = paste0(datadir, "testGrowthCurveLayout.txt")
+datadir <- "../GrowthExperiments/2022_06_24_AgmArgCitr_extraComps/"
+datafile <- paste0(datadir, "AgmCitrlOrnOtherComps_2243_2022-06-24.txt")
+metadata_file <- paste0(datadir, "mediaPlan.xlsx")
+
+# Set up metadata
+layout_info = data.table(read_xlsx(metadata_file, sheet = "Layout"))
+layout_info[,Type:=ifelse(is.na(Row), "Strain", "Media")]
+layout_info <- layout_info[1:16]
+layout_info[,Row:=sapply(1:nrow(layout_info), function(x){
+  if(!is.na(layout_info[x, Row])){
+    return(layout_info[x,Row])
+  } else {
+    return(layout_info[x-1, Row])
+  }
+})]
+layout_info = melt(layout_info, id.var = c("Row", "Type"), variable.name = "Column")
+#layout_info[value=="" & Type=="Strain", value:="Control"]
+layout_info = dcast(layout_info, Row+Column~Type, value.var = "value")
+layout_info[,well:=paste0(Row, Column)]
+layout_info[Strain == "c", Strain:="Control"]
+#For normalization, the metadata needs to have a column named "Condition" to specify which blank wells/controls 
+# should be used for normalization with different experimental groups
+setnames(layout_info, "Media", "Condition") #In this case we have sterile blanks for each media group
+
+# Get set of blank wells for normalization from metadata
+
+blank_wells1 = layout_info[Strain=="Control", well]
+names(blank_wells1) = layout_info[Strain=="Control", Condition]
+blank_wells1 <- blank_wells1[blank_wells1 != "G2"]
+# Read in file
+growth_data1 = read_growthcurve_file(datafile)
+
+# Formatting and initial plot
+growth_data_long = melt(growth_data1, id.var = c("time", "temp"), variable.name = "well")
+growth_data_long = merge(growth_data_long, layout_info, by = "well", all.x = T)
+growth_data_long = growth_data_long[!is.na(Condition)] #wells without metadata were empty
+
+# ggplot(growth_data_long, aes(x=time, y= value)) + geom_line(aes(group = well, color = well %in% blank_wells1))
+# ggplot(growth_data_long[!well %in% blank_wells1], aes(x=time, y= value)) + geom_line() + facet_wrap(~well) + 
+#   geom_vline(xintercept = 54, linetype = 2)
+growth_data_long <- growth_data_long[!is.na(value)]
+
+# Normalize based on blank wells
+corrected_data = correct_growth_data_custom(growth_data_long, blank_wells = blank_wells1, 
+                                            method = "blankTimeMatch", wide_form = F)
+# Change to look for a Treatment or Condition variable
+growth_data_norm = dcast(corrected_data, time~well, value.var = "NewValue", fill = 0)
+
+# Fit curves with growthcurver
+model_fits = fit_growthcurver_models(growth_data_norm, indiv_fits = F, trim_after = 54)
+
+# Fit curves with different trimming parameters for different wells
+all_samps = corrected_data[,unique(well)]
+trim_after_wells = rep(54, times = length(all_samps))
+#trim_after_wells[grepl("10", all_samps)] = 66
+
+trim_before_wells = rep(0, length(all_samps))
+#trim_before_wells[all_samps=="C10"] = 5
+#trim_before_wells[all_samps=="D8"] = 4
+
+model_fits2 = fit_growthcurver_models(growth_data_norm, indiv_fits = T, 
+                                      all_sample_mins = trim_before_wells, 
+                                      all_sample_maxes = trim_after_wells)
+model_fits2 = merge(model_fits2, layout_info, by.x = "Sample", by.y = "well", all.x = T)
+
+# Check bad model fits
+bad_fits = model_fits2[(k < 0.01 & r > 0.5) | k > 0.5 | t_mid < 0, Sample]
+ggplot(corrected_data[well %in% bad_fits], aes(x=time, y = NewValue, group = well, color = Strain)) + geom_line() + facet_wrap(~well)
+growth_data_norm <- growth_data_norm[,-"G2"]
+
+exp1 <- layout_info[grepl("Agm", Condition), unique(Condition)]
+exp2 <- c("EDM1_Arg1Agm0", "Arg0Citrl1", "Arg0Orn1")
+exp3 <- layout_info[,unique(Condition)][9:12]
+
+layout_info[,Condition2:=factor(Condition, levels = c("EDM1_Arg1Agm0", "Arg0.5Agm0", "Arg0Agm1", "Arg0Agm0.5", "Arg0Agm0", "Arg0.5Agm0.5",  "Arg0Citrl1", "Arg0Orn1", 
+                                                      "Base2_70Ac70Arg", "Base2_NCarbAsp", "Base2_AcetylCarn", "Base2_HexCarn"))]
+levels(layout_info$Condition2) <- c("EDM1 (full arginine)", "50% arginine", "Full agmatine", "50% agmatine", "0 arginine, 0 agmatine", "50% arginine, 50% agmatine", 
+                                    "Citrulline", "Ornithine", "Base2", "N-Carb-asp", "Acetyl-carnitine", "Hexanoyl-carnitine")
+## Bonus figure 6C
+plot1 = plot_growth_curves(growth_data_norm = growth_data_norm[,c("time", layout_info[Condition %in% exp1 & Strain == "2243", well]), with=F], 
+                           group_metadata = layout_info[Condition %in% exp1], color_var = "Condition2", 
+                           facet_var = "Strain", mean_se = T, model_fits = model_fits2) + 
+  scale_fill_manual(values = c(brewer.pal(10, "Paired")[c(2,1,6,5, 9, 10)]), name = "Condition") + ylab("E. lenta DSM 2243 abundance\n(normalized OD600)") +
+  xlab("Time (hr)")
+
+
+ggsave(plot1, file ="figure6/arg_agm_doses_plot.pdf", width = 6, height= 3)
+fig6c_data <- melt(growth_data_norm[,c("time", layout_info[Condition %in% exp1 & Strain == "2243", well]), with=F], id.var = "time", variable.name = "well", variable.factor =F, value.name = "NormalizedOD600")
+fig6c_data <- merge(fig6c_data, layout_info[Condition %in% exp1, list(well, Strain, Condition2)], by = "well", all = F)
+
+fwrite(fig6c_data[Condition2 %in% c("EDM1 (full arginine)", "Citrulline", "Ornithine"), list(Strain, Condition = Condition2, time, well, NormalizedOD600)], file = "figure_source_data/figureS5A_growthArgCitrlOrn.tsv", quote=F, row.names = F, sep = "\t")
+
+fwrite(fig6c_data[Condition2 %in% c("EDM1 (full arginine)", "50% arginine", "Full agmatine", "50% agmatine", "0 arginine, 0 agmatine", "50% arginine, 50% agmatine"), list(Strain, Condition = Condition2, time, well, NormalizedOD600)], file = "figure_source_data/figure6C_growthArgAgm.tsv", quote=F, row.names = F, sep = "\t")
+
+plot2 = plot_growth_curves(growth_data_norm = growth_data_norm[,c("time", layout_info[Condition %in% exp2 & Strain == "2243", well]), with=F], 
+                           group_metadata = layout_info[Condition %in% exp2], color_var = "Condition2", 
+                           facet_var = "Strain", mean_se = T, model_fits = model_fits2) + 
+  ylab("E. lenta DSM 2243 abundance\n(normalized OD600)") +
+  xlab("Time (hr)")
+ggsave(plot2, file = paste0(datadir, "arg_orn_citrl_plot.pdf"), width = 5.2, height= 3)
+
+
+```

@@ -164,7 +164,7 @@ met_names_all[,PresentInTimeCourseCtrl:=ifelse(INCHIKEY %in% time_series_dat[Str
 met_names_all[,PresentInTimeCourseCtrl2:=ifelse(tolower(MetName) %in% time_series_dat[Strain == "Ctrl" & TimePoint == 1, tolower(MetName)], 1, 0)]
 library(webchem)
 cts_convert(query = "Valine", from = "Chemical Name", to= "InChiKey")
-met_names_all[,OstensibleName:=cts_convert(query = INCHIKEY.y, from = "InChiKey", to = "Chemical Name")]
+met_names_all[,OstensibleName:=cts_convert(query = INCHIKEY, from = "InChiKey", to = "Chemical Name")]
 ## Brian's Inchikeys are different in this dataset!!
 
 new_dat_feature_tab <- unique(data_all[,list(IDUniq, AvgMZ, AvgRt, IonMode, MSI, MetName, INCHIKEY)])
@@ -183,7 +183,7 @@ View(compare_dat[,list(IDUniq.x, IDUniq.y, MetName.x, MetName.y, MSI.x, MSI.y)])
 compare_dat[,length(unique(IDUniq.y[!is.na(IDUniq.y)])), by=IDUniq.x][,table(V1)]
 
 data_all[,HasComparisonInTimeSeries:=ifelse(IDUniq %in% compare_dat[!is.na(IDUniq.y) & !is.na(MzDiff), IDUniq.x], 1, 0)]
-
+fwrite(data_all[,list(Sample, Solution, Conc, Rep, Strain, IDUniq, MetName, AlignmentID, AvgMZ, AvgRt, MSI, INCHIKEY, IonMode, Duplicate, Present1, Intended, HasComparisonInTimeSeries, value, log10value)], file = "figure_source_data/figureS1e_blankSolutions.tsv", quote=F, row.names = F, sep = "\t")
 simple_heatmap_plot <- ggplot(data_all[!is.na(MSI) & !grepl("[_\\-][Dd][35789]", MetName) & Duplicate == 0 & Present1 == 1 & !grepl("BK", Sample)], 
                               aes(x = gsub("PETU006_", "", Sample), y = factor(paste0(MetName, " (", MSI, ")_", IonMode, AlignmentID), levels = comp_order), 
                                   fill = log10value)) + 

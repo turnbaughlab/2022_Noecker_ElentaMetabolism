@@ -243,7 +243,13 @@ ggsave(aa_plot, file = paste0(outdir, "amino_acids_plot.pdf"), width = 5.5, heig
 aa_plot
 
 
-
+source_data_intest <- met_data[IDUniq %in% met_data_means[,IDUniq] & Duplicate == 0, list(IDUniq, AlignmentID, IonMode, AvgMZ, AvgRt, MSI, MetName, Formula, INCHIKEY, CF_superclass,
+                                                                                          Sample, Animal=Animal2, SampleType, Group, Cage, value, log10value)]
+source_data_serum <- serum_met_data[IDUniq %in% serum_met_data_means[,IDUniq] & Duplicate == 0, list(IDUniq, AlignmentID, IonMode, AvgMZ, AvgRt, MSI, MetName, Formula, INCHIKEY, CF_superclass,
+                                                                                          Sample, Animal, SampleType, Group, Cage, value, log10value)]
+source_data_serum[,IonMode:=ifelse(IonMode=="pos", "Positive", "Negative")]
+source_data <- rbind(source_data_intest, source_data_serum)
+fwrite(source_data, file = "figure_source_data/figure5A_6A_S10A_S11_mouseMetData.tsv", quote=F, row.names = F, sep = "\t")
 ```
 
 # Linking features across datasets
@@ -305,6 +311,8 @@ count_plot_serum_all <- count_plot_serum + ylab("") + ggtitle("All features") + 
 ggsave(count_plot_serum_all, file = paste0(outdir, "intestinal_serum_features_count_id.pdf"), width = 5.5, height = 3.7)
 count_plot_serum_all
 
+features_tab_source_data <- features_tab[(grepl("Serum", IDUniq)|grepl("Intest", IDUniq)) & IDUniq %in% c(good_intest_features, good_serum_features), list(IDUniq, `Alignment ID`, Dataset, AvgMZ, AvgRt, NewID2, InStrains=InGL, InTimeCourse, InVitro)]
+fwrite(features_tab_source_data, file = "figure_source_data/figureS10B_linkedFeatures.tsv", quote=F, row.names = F, sep = "\t")
 
 ## Combine mouse data with strain and time series in vitro data
 time_series_results <- fread("processedDatasets/timecourse_mean_summaries.csv")
@@ -485,6 +493,13 @@ strain_effect_comparison_all <- strain_effect_comparison_plot  + serum_plot + gu
 ggsave(strain_effect_comparison_all, file = paste0(outdir, "combined_strainCompare_simplifiedColors.pdf"), height = 6.2, width = 10)
 
 strain_effect_comparison_all
+
+# Source data
+source_data_serum <- serum_data_means[!(is.na(SharedShift) & is.na(SharedShiftTimeSeries)), list(IDUniq, IDUniq2, NewID2, AvgMZ, AvgRt, Adduct, MSI, Formula, Strain, Site, Strains_log2FC, Strains_FDRCorrect, TimeSeries_log2FC, TimeSeries_FDRCorrect, GF_log2FCEstimate= EstimateLog2Scale, GF_FDRCorrect = FDRCorrect, SharedShiftTimeSeries, SharedShiftStrain=SharedShift)]
+source_data_intest <- met_data_means[!(is.na(SharedShiftStrain) & is.na(SharedShiftTimeSeries)), list(IDUniq, IDUniq2, NewID2, AvgMZ, AvgRt, Adduct, MSI, Formula, Strain, Site, Strains_log2FC, Strains_FDRCorrect, TimeSeries_log2FC, TimeSeries_FDRCorrect, GF_log2FCEstimate= EstimateLog2Scale, GF_FDRCorrect = FDRCorrect, SharedShiftTimeSeries, SharedShiftStrain)]
+source_data <- rbind(source_data_serum, source_data_intest)
+
+fwrite(source_data, file = "figure_source_data/figure5B_figureS10C_mergedAvgEstimates.tsv", quote=F, row.names = F, sep = "\t")
 
 ### Supp data
 mets_save2243 <- met_data_means[Strain =="Eggerthella_lenta_UCSF2243" & InVitro != "Not detected" & FDRCorrect < 0.2 & !is.na(FDRCorrect) & abs(EstimateLog2Scale) > 1, unique(NewID2)]

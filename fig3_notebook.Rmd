@@ -77,6 +77,7 @@ on_off_plot3 <- ggplot(fva_data[!grepl("Exchange", Subsystem) & Rxn != "bio1" & 
 ggsave(on_off_plot3, file = paste0(outdir, "DM1b_ATCC25559_fluxesOnOff_counts_top20.pdf"), width = 4, height = 4)
 
 on_off_plot3 
+fwrite(fva_data[!grepl("Exchange", Subsystem) & Rxn != "bio1" & Subsystem %in% top_top_sub & !is.na(Subsystem), list(Subsystem, Rxn, On)][order(Subsystem)], file = "figure_source_data/figure3B_topSubsysRxns.tsv", quote=F, row.names = F, sep = "\t")
 
 ############ Arg/Ac compare CODH
 single_robustness_data <- fread(paste0(flux_dir, "DM1b_acetateRobustness_withWithoutCODH.txt"))
@@ -99,12 +100,18 @@ ggsave(ac_plot + arg_plot + guides(color = "none"), file = paste0(outdir, "ac_ar
 
 ac_plot + arg_plot + guides(color = "none")
 
+single_robustness_data[,Compound:="Acetate"]
+single_robustness_data_arg[,Compound:="Arginine"]
+single_robustness_data_all <- rbind(single_robustness_data, single_robustness_data_arg, use.names = F)
+fwrite(single_robustness_data_all[,list(Compound, Model, CompoundFlux = acetate_fluxes, GrowthRate = acetate_growthRates)], file = "figure_source_data/figure3C_CODHrobustness.tsv", quote=F, row.names = F, sep = "\t")
+
 ################ Growth LOO comparison
-loo_results <- fread(paste0(growth_dir, "suppTable_loo_growth_summary.tsv"))
+#loo_results <- fread(paste0(growth_dir, "suppTable_loo_growth_summary.tsv")) # Something is wrong with the Uracil growth results
+loo_results <- data.table(read_xlsx("supp_tables/TableS2_growthParams.xlsx"))
 loo_results[,FracR:=sapply(r_mean, function(x){ x/loo_results[LOO=="EDM1", r_mean]})]
 loo_results[,FracK:=sapply(k_mean, function(x){ x/loo_results[LOO=="EDM1", k_mean]})]
 loo_results[,FractionAUC_e:=sapply(auc_e_mean, function(x){ x/loo_results[LOO=="EDM1", auc_e_mean]})]
-loo_results[,GrowthBinary:=ifelse(FracR > 0.01 & FracK > 0.05 & FractionAUC_e > 0.05, 1, 0)]
+loo_results[,GrowthBinary:=ifelse(FracR > 0.01 & FracK > 0.05 & FractionAUC_e > 0.04, 1, 0)]
 summary_loo <- loo_results
 name_tab <- data.table(Name = loo_results[,sort(unique(LOO))])
 name_tab[,ID:=c("ac", "arg_L", "ascb_L", "b12", "btn", "ca2", "cobalt2", "cu2", "cys_L", "Base", "fe2", "fol", "", "hco3", "pheme", "his_L", "ile_L", "leu_L", "lys_L", "mndn_L", "met_L", "mg2", "mn2", "mobd", "nad", "ni2", "no3", 
@@ -150,6 +157,7 @@ ggsave(confusion_matrix, file = paste0(outdir, "LOO_confusion_matrix.pdf"), widt
 
 confusion_matrix
 
+single_loo_results[!is.na(GrowthBinary)][SimulationGrowthRate > 0 & GrowthBinary==0]
 # Get a p-value
 single_loo_results[!is.na(GrowthBinary), fisher.test(table(GrowthBinary == 1, SimulationGrowthRate > 0))]
 
@@ -159,6 +167,8 @@ mcc <- function(tp, tn, fp, fn){
 }
 mcc(binary_count[1, V1], binary_count[4, V1], binary_count[2, V1], binary_count[3, V1])
 
+data_save <- single_loo_results[,list(CompoundID, MetName, Category, SimulationGrowthRate, ExperimentalAUCe, GrowthBinary, FBAGrowthBinary = SimulationGrowthRate > 0)]
+fwrite(data_save, file = "figure_source_data/figure3DE_LOO_FBA_comparison.pdf", sep = "\t", row.names = F, quote = F)
 
 ###### Secretion plot - show both uptake and secretion and indicate in bold if detected in any met dataset
 
@@ -200,6 +210,8 @@ secretion_plot <- ggplot(exch_data[MetOutcome != "No data"],
 ggsave(secretion_plot, file = paste0(outdir, "fva_secretion_metabolomics_compare_horizontal.pdf"), width = 8.5, height = 3.2)
 
 secretion_plot
+exch_data[,Met_Log2FC:=]
+fwrite(exch_data[MetOutcome != "No data", list(Rxn, MetName, FVA_LB, FVA_UB, pFBA, MetOutcome, FVAPred, Met_Log2FC=V1)][order(pFBA)], file = "figure_source_data/figure3F_FVAsecretionUptake.tsv", quote=F, row.names = F, sep = "\t")
 
 ############ Panel A - numbers of genes, mets, reactions
 
@@ -262,6 +274,8 @@ mod_summary_barplot <- ggplot(curated_mod_summary, aes(x = Feature, y = Number, 
 ggsave(mod_summary_barplot, file = paste0(outdir, "model_summary_barplot_expanded.pdf"), width = 3.5, height = 2.8)
 
 mod_summary_barplot
+
+fwrite(curated_mod_summary[,list(Type, Feature, Number)], file = "figure_source_data/figure3A_rxnCounts.tsv")
 
 ################## RNA comparison
 
@@ -375,6 +389,9 @@ ggsave(quantile_version, file = paste0(outdir, "RNASeq_pFBA_fluxes_comparison_qu
 
 quantile_version
 
+source_dat <- strain_genes[!is.na(pFBAFlux) & !is.na(meanBaselineTPM), list(Genes, locus_tag, Rxn, Subsystem, pFBAFlux=pFBAFlux2, pFBA_FluxQuantile=fluxQuantiles, meanBaselineTPM)]
+fwrite(source_dat, file = "figure_source_data/figure3G_fluxRNAcompare.tsv", quote=F, row.names = F, sep = "\t")
+
 strain_genes[,fisher.test(table(pFBAFlux2 != 0, meanBaselineTPM > 20))]
 strain_genes[!is.na(locus_tag),table(pFBAFlux2 != 0, meanBaselineTPM  > 20)]
 strain_genes[!is.na(locus_tag), prop.table(table(pFBAFlux2 != 0, meanBaselineTPM > median(meanBaselineTPM)),1)]
@@ -480,6 +497,8 @@ ko_results_all2[!grepl("Exchange", Var3) & delRxn != "bio1" & abs(pFBA) > 1e-15 
 sub_data <- rbind(data.table(top_kos[,list(Var3, HasEffect2)], Setting = "Unconstrained model"), 
                   data.table(top_kos[,list(Var3, DM1b_HasEffect2)], Setting = "EDM1"), use.names = F)
 
+fwrite(ko_results_all2[,list(delRxn, RxnName=Var2, RxnSubsystem = Var3, grRatio, grRateKO, HasEffect = HasEffect2, EDM_grRatio = DM1b_grRatio, EDM_grRateKO = DM1b_grRateKO, EDM_HasEffect = DM1b_HasEffect2)], file = "figure_source_data/figureS7A_subsysKOs.tsv", quote=F, row.names = F, sep = "\t")
+
 essential_reactions_count_plot3 <- ggplot(sub_data, aes(x = factor(Var3, levels = subsystem_order), fill = HasEffect2)) +
   geom_bar(position = "stack", color= "black") + coord_flip() + theme_pubr() + 
   theme(legend.position = "right", axis.ticks.y = element_blank(), axis.text.y = element_text(size = 9), strip.background = element_blank()) +
@@ -542,6 +561,54 @@ ggsave(nice_violin_plot_nocolor, file = paste0(outdir, "MaxGrowthRateKOStrainGen
 
 nice_violin_plot_nocolor
 
+fwrite(strain_genes[,list(Rxn, Gene, locus_tag, ClusterID, NumStrainsOutOf31 = NumStrains, grRatio, grRateKO, HasEffect = HasEffect2)], file = "figure_source_data/figureS7B_strainConservationKOs.tsv", 
+       quote=F, row.names = F, sep = "\t")
+
 ```
 
 
+Figure S6 - limiting biomass components
+```{r}
+##
+rm(list = ls())
+library(data.table)
+library(patchwork)
+
+theme_set(ggpubr::theme_classic2())
+ribflv_data <- fread("../../ElentaFBA/ribflv_alone_biomass_vary.txt")
+ribflv_plot <- ggplot(ribflv_data[seq(1, nrow(ribflv_data), by = 10)], aes(x = -1*Var1, y = growth_rate_results)) + geom_line() + geom_point(size = 0.5) + xlim(0, 0.002) + 
+  xlab("Biomass coefficient for riboflavin") + ylab("FBA max growth rate") + 
+  geom_vline(xintercept = 0.00005, linetype = 2, color = "blue")+ theme(axis.text = element_text(size = 9), axis.title = element_text(size = 10))
+
+fad_data <- fread("../../ElentaFBA/fad_biomass_vary.txt")
+fad_plot <- ggplot(fad_data[seq(1, nrow(fad_data), by = 20)], aes(x = -1*Var1, y = growth_rate_results)) + geom_line() + geom_point(size = 0.5) + xlim(0, 0.005) + 
+  xlab("Biomass coefficient for FAD") + ylab("FBA max growth rate") + 
+  geom_vline(xintercept = 0.001, linetype = 2, color = "blue") + theme(axis.text = element_text(size = 9), axis.title = element_text(size = 10))
+
+atp_data <- fread("../../ElentaFBA/atp_biomass_vary.txt")
+atp_plot <- ggplot(atp_data, aes(x = -1*Var1, y = growth_rate_results)) + geom_line() + geom_point(size = 0.5) + xlim(35, 90) + 
+  xlab("Biomass coefficient for ATP") + ylab("FBA max growth rate") + 
+  geom_vline(xintercept = 40.1102, linetype = 2, color = "blue") + theme(axis.text = element_text(size = 9), axis.title = element_text(size = 10))
+
+combined_plot <- ribflv_plot + fad_plot + atp_plot
+ggsave(combined_plot, file = "figures/biomass_coefficient_sensitivity.pdf", width = 8, height = 2.8)
+ggsave(combined_plot, file = "figures/biomass_coefficient_sensitivity.png", width = 8, height = 2.8)
+
+combined_dat <- rbind(data.table(ribflv_data[seq(1, nrow(ribflv_data), by = 10)], Compound = "Riboflavin", 
+                                 ModelValue = 0.00005), 
+                      data.table(fad_data[seq(1, nrow(fad_data), by = 20)], Compound = "FAD",
+                                 ModelValue = 0.001),
+                      data.table(atp_data, Compound = "ATP", ModelValue = 40.1102))
+combined_plot2 <- ggplot(combined_dat, aes(x = -1*Var1, y = growth_rate_results)) + geom_line() + geom_point(size = 0.5) + 
+  xlab("Biomass coefficient") + ylab("FBA max growth rate") + facet_wrap(~Compound, scales = "free") + 
+  geom_vline(aes(xintercept = ModelValue, color = "Value in iEL2243_2"), linetype = 2) +
+  scale_color_manual(values = "blue", name = "") +
+  theme(axis.text = element_text(size = 9), axis.title = element_text(size = 10), 
+        strip.background = element_blank(), legend.position = "bottom")
+ggsave(combined_plot2, file = "figures/biomass_coefficient_sensitivity_v2.pdf", width = 7.5, height = 3.3)
+ggsave(combined_plot2, file = "figures/biomass_coefficient_sensitivity_v2.png", width = 7.5, height = 3.3)
+
+
+fwrite(combined_dat[,list(Compound, ModelValue, NewBiomassValue=Var1, FBAGrowthRate=growth_rate_results)], file = "figure_source_data/figureS6_biomassCoefs.tsv", quote=F, row.names = F, sep = "\t")
+
+```
