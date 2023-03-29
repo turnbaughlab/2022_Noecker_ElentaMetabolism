@@ -326,6 +326,9 @@ annot_features[Duplicate == 0][`Reference RT` != "null",hist(abs(AvgRt-as.numeri
 compare_rts <- annot_features[ MSI != ""]
 compare_rts[,RTDiff:=abs(AvgRt-as.numeric(`Reference RT`))]
 compare_rts[,MZDiff:=abs(AvgMZ - as.numeric(`Reference m/z`))]
+compare_rts <- compare_rts[MSI %in% c(1,2,3,4)]
+fwrite(compare_rts, file = "figure_source_data/figureS12_timeSeries_compareAnnots.tsv", quote=F, row.names = F, sep = "\t")
+
 ggplot(compare_rts, aes(x = MZDiff)) + facet_wrap(~MSI) + geom_histogram(bins = 26) #+ xlim(0, 0.25)
 rt_compare <- ggplot(compare_rts[MSI %in% c(1,2)], aes(x = RTDiff)) + facet_wrap(~paste0("MSI ", MSI)) + geom_histogram(binwidth = 0.02) +
   xlab("Difference between observed and\nlibrary standard retention time (minutes)") + ylab("Number of features") +
